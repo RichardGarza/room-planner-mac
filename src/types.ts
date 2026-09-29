@@ -1,4 +1,19 @@
 export type Wall = 'top' | 'bottom' | 'left' | 'right'
+/** A corner of the room's rectangle. "back" is the top wall on the plan, "front" the bottom one. */
+export type Corner = 'backLeft' | 'backRight' | 'frontLeft' | 'frontRight'
+/**
+ * Any wall of the room: the four sides of the rectangle, plus a wall across each corner that is
+ * cut off (an angled wall). Windows and doors can sit on any of them.
+ */
+export type AnyWall = Wall | Corner
+/**
+ * A cut-off corner: a straight wall from `x` cm along the back or front wall to `y` cm along the
+ * side wall. Equal legs make a 45° wall.
+ */
+export interface CornerCut {
+  x: number
+  y: number
+}
 /** Rotation on the plan in degrees, clockwise, normalised to [0, 360). 0 / 90 / 180 / 270 are the axis-aligned cases. */
 export type Rot = number
 export type ItemKind =
@@ -41,7 +56,8 @@ export interface Item {
 
 export interface Opening {
   id: string
-  wall: Wall
+  /** a window or door may sit on an angled corner wall; offset then runs along that wall */
+  wall: AnyWall
   /** distance along the wall from its left/top end to the opening's start */
   offset: number
   width: number
@@ -93,6 +109,8 @@ export interface Room {
   radiators: Radiator[]
   closets: Closet[]
   wallColors: { left: string; right: string; top: string; bottom: string }
+  /** cut-off corners; each adds an angled wall, so a room has 4 to 8 walls */
+  corners?: Partial<Record<Corner, CornerCut>>
   floorColor: string
 }
 

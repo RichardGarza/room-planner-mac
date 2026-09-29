@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import { defaultItems, defaultRoom, presetLayouts } from './data'
-import { CLOSET_HEIGHT, clamp, footprint, frontRecessPad, isRugKind, normalizeRot, rectOf, wallLength } from './geometry'
+import { CLOSET_HEIGHT, CORNERS, MIN_CUT, clamp, cornerWalls, cutCorners, cutTriangles, footprint, frontRecessPad, isCorner, isRugKind, normalizeRot, pointInPolygon, rectOf, wallFrame, wallSpan } from './geometry'
 import { migrateRoom, nextOpeningId } from './migrate'
 import { suggestLayouts } from './suggest'
-import type { Closet, Door, Item, ItemPlacement, Layout, Opening, Radiator, Room, RoomDoc, Wall } from './types'
+import type { AnyWall, Closet, Door, Item, ItemPlacement, Layout, Opening, Radiator, Room, RoomDoc, Wall } from './types'
 
 export type ViewMode = 'outside' | 'walk'
 export type OutsideAngle = 'corner' | 'above' | 'window' | 'door'
@@ -141,11 +141,25 @@ export function sanitizeRoom(room: Room): Room {
   const w = clamp(Math.round(room.w), 150, 1200)
   const d = clamp(Math.round(room.d), 150, 1200)
   const h = clamp(Math.round(room.h), 200, 400)
-  const r = { ...room, w, d, h }
-  const fixOpening = <T extends { wall: Wall; offset: number; width: number }>(o: T, minWidth: number): T => {
-    const len = wallLength(r, o.wall)
+  const r: Room = { ...room, w, d, h }
+  // cut corners: legs rounded and kept under half of each wall; a leg below MIN_CUT squares the corner again
+  const corners: NonNullable<Room['corners']> = {}
+  for (const c of CORNERS) {
+    const cut = room.corners?.[c]
+    if (!cut) continue
+    const x = clamp(Math.round(cut.x), 0, Math.floor(w / 2)), y = clamp(Math.round(cut.y), 0, Math.floor(d / 2))
+    if (x >= MIN_CUT && y >= MIN_CUT) corners[c] = { x, y }
+  }
+  if (Object.keys(corners).length) r.corners = corners
+  else delete r.corners
+  // an opening stays on the part of its wall that is there (between cut corners); one on a corner
+  // that is no longer cut moves to that corner's back or front wall
+  const fixOpening = <T extends { wall: AnyWall; offset: number; width: number }>(o: T, minWidth: number): T => {
+    const wall = isCorner(o.wall) && !r.corners?.[o.wall] ? cornerWalls(o.wall).across : o.wall
+    const [s0, s1] = wallSpan(r, wall)
+    const len = s1 - s0
     const width = clamp(Math.round(o.width), Math.min(minWidth, len), len)
-    return { ...o, width, offset: clamp(Math.round(o.offset), 0, len - width) }
+    return { ...o, wall, width, offset: clamp(Math.round(o.offset), Math.ceil(s0), Math.floor(s1 - width)) }
   }
   const windows = (r.windows ?? []).map((o) => {
     const win = fixOpening(o, 30)
@@ -179,18 +193,18 @@ const NEW_OPENING = {
 } as const
 
 /** Everything already occupying a wall, as spans along it. Radiators may sit under windows. */
-function occupied(room: Room, wall: Wall, kind: OpeningKind): { offset: number; width: number }[] {
+function occupied(room: Room, wall: AnyWall, kind: OpeningKind): { offset: number; width: number }[] {
   const closets = room.closets ?? []
-  const list: { wall: Wall; offset: number; width: number }[] =
+  const list: { wall: AnyWall; offset: number; width: number }[] =
     kind === 'radiator' ? [...room.doors, ...room.radiators, ...closets] : [...room.windows, ...room.doors, ...room.radiators, ...closets]
   return list.filter((o) => o.wall === wall).sort((a, b) => a.offset - b.offset)
 }
 
 /** The widest free stretch on a wall, or null when nothing fits `width` (+ margins). */
-function freeRun(room: Room, wall: Wall, kind: OpeningKind, width: number): { start: number; size: number } | null {
-  const len = wallLength(room, wall)
+function freeRun(room: Room, wall: AnyWall, kind: OpeningKind, width: number): { start: number; size: number } | null {
+  const [s0, len] = wallSpan(room, wall)
   const margin = 10
-  let cursor = 0
+  let cursor = s0
   let best: { start: number; size: number } | null = null
   const consider = (start: number, end: number) => {
     const size = end - start
@@ -205,7 +219,7 @@ function freeRun(room: Room, wall: Wall, kind: OpeningKind, width: number): { st
 }
 
 /** Centre of the widest free stretch on a wall that fits `width` (+ margins), or null. */
-function freeSpot(room: Room, wall: Wall, kind: OpeningKind, width: number): number | null {
+function freeSpot(room: Room, wall: AnyWall, kind: OpeningKind, width: number): number | null {
   const b = freeRun(room, wall, kind, width)
   return b ? Math.round(b.start + (b.size - width) / 2) : null
 }
@@ -215,7 +229,8 @@ const OPPOSITE: Record<Wall, Wall> = { top: 'bottom', bottom: 'top', left: 'righ
 /** A closet goes on the wall with the longest free run, opposite the door wall when that one has room. */
 function closetSpot(room: Room): { wall: Wall; offset: number; width: number } {
   const walls: Wall[] = ['right', 'left', 'top', 'bottom']
-  const opposite = room.doors[0] ? OPPOSITE[room.doors[0].wall] : null
+  const doorWall = room.doors[0]?.wall
+  const opposite = doorWall ? OPPOSITE[isCorner(doorWall) ? cornerWalls(doorWall).across : doorWall] : null
   for (const width of [NEW_OPENING.closet.width, 120, 90, 60]) {
     if (opposite) {
       const run = freeRun(room, opposite, 'closet', width)
@@ -258,9 +273,22 @@ function makeOpening(room: Room, kind: OpeningKind): Opening | Door | Radiator |
 export const WALK_WALL_GAP = 20
 export const WALK_ITEM_GAP = 12
 
+/** Distance from a point to the nearest angled corner wall (Infinity with no corner cut). */
+function distanceToCut(room: Room, px: number, py: number): number {
+  let best = Infinity
+  for (const c of cutCorners(room)) {
+    const { start, along, normal, length } = wallFrame(room, c)
+    const t = (px - start[0]) * along[0] + (py - start[1]) * along[1]
+    if (t < 0 || t > length) continue
+    best = Math.min(best, (px - start[0]) * normal[0] + (py - start[1]) * normal[1])
+  }
+  return best
+}
+
 /** True when a standing point is inside a wall margin or within the item gap of a solid in-room piece. */
 export function walkBlocked(room: Room, items: Item[], px: number, py: number): boolean {
   if (px < WALK_WALL_GAP || px > room.w - WALK_WALL_GAP || py < WALK_WALL_GAP || py > room.d - WALK_WALL_GAP) return true
+  if (cutTriangles(room).some((tri) => pointInPolygon(px, py, tri)) || distanceToCut(room, px, py) < WALK_WALL_GAP) return true
   return items.some((it) => {
     if (!it.inRoom || isRugKind(it.kind)) return false
     const r = rectOf(it)
@@ -296,15 +324,15 @@ function walkStart(room: Room, items: Item[], preset: WalkPreset): WalkPose {
   const t = o.offset + o.width / 2
   // stand past the swing of an inward door leaf so it is not filling the view
   const inset = preset === 'door' && (o as Door).swing !== 'out' ? Math.min(o.width + 20, room.d / 3) : 45
-  const pose = (): WalkPose => {
-    switch (o.wall) {
-      case 'top': return { x: t, y: inset, yaw: Math.PI, pitch: -0.05 }
-      case 'bottom': return { x: t, y: room.d - inset, yaw: 0, pitch: -0.05 }
-      case 'left': return { x: inset, y: t, yaw: -Math.PI / 2, pitch: -0.05 }
-      case 'right': return { x: room.w - inset, y: t, yaw: Math.PI / 2, pitch: -0.05 }
-    }
+  // step `inset` in along the wall's inward normal and face that way (yaw 0 looks toward the back wall)
+  const { start, along, normal } = wallFrame(room, o.wall)
+  const pose: WalkPose = {
+    x: start[0] + along[0] * t + normal[0] * inset,
+    y: start[1] + along[1] * t + normal[1] * inset,
+    yaw: Math.atan2(0 - normal[0], 0 - normal[1]), // 0 - n keeps a +0 (atan2(-0, -1) is -π)
+    pitch: -0.05,
   }
-  return freeWalkPose(room, items, pose())
+  return freeWalkPose(room, items, pose)
 }
 
 /* ---------- URL sharing ---------- */

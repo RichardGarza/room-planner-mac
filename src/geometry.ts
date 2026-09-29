@@ -1,4 +1,4 @@
-import type { CheckLevel, Closet, Door, Item, ItemKind, Rect, Room, Wall } from './types'
+import type { AnyWall, CheckLevel, Closet, Corner, CornerCut, Door, Item, ItemKind, Rect, Room, Wall } from './types'
 
 /** Rugs are walked over and lie under other furniture, so they never collide. */
 export function isRugKind(kind: ItemKind) {
@@ -163,8 +163,165 @@ export function gapBetween(a: Rect, b: Rect): { axis: 'x' | 'y'; gap: number } |
   return null
 }
 
-/** Rect that an opening / radiator occupies against its wall, projected `depth` cm into the room. */
-export function wallStripRect(room: Room, wall: Wall, offset: number, width: number, depth: number): Rect {
+/* ---------- walls: the rectangle's four sides and the angled walls across cut-off corners ---------- */
+
+export const CORNERS: Corner[] = ['backLeft', 'backRight', 'frontLeft', 'frontRight']
+/** The smallest leg a cut corner keeps; below it the corner is square again. */
+export const MIN_CUT = 10
+
+export function isCorner(wall: AnyWall): wall is Corner {
+  return wall !== 'top' && wall !== 'bottom' && wall !== 'left' && wall !== 'right'
+}
+
+/** The two straight walls a corner joins: its back/front wall and its side wall. */
+export function cornerWalls(corner: Corner): { across: 'top' | 'bottom'; side: 'left' | 'right' } {
+  return {
+    across: corner.startsWith('back') ? 'top' : 'bottom',
+    side: corner.endsWith('Left') ? 'left' : 'right',
+  }
+}
+
+/** The corner's cut, its legs kept inside the room (less than half of each wall), or null when square. */
+export function cornerCut(room: Pick<Room, 'w' | 'd' | 'corners'>, corner: Corner): CornerCut | null {
+  const c = room.corners?.[corner]
+  if (!c) return null
+  const x = clamp(c.x, 0, room.w / 2), y = clamp(c.y, 0, room.d / 2)
+  return x >= MIN_CUT && y >= MIN_CUT ? { x, y } : null
+}
+
+/** The corners that are cut off. */
+export function cutCorners(room: Pick<Room, 'w' | 'd' | 'corners'>): Corner[] {
+  return CORNERS.filter((c) => cornerCut(room, c))
+}
+
+/** Every wall of the room, going round clockwise from the back wall. */
+export function roomWalls(room: Pick<Room, 'w' | 'd' | 'corners'>): AnyWall[] {
+  const order: AnyWall[] = ['top', 'backRight', 'right', 'frontRight', 'bottom', 'frontLeft', 'left', 'backLeft']
+  return order.filter((w) => !isCorner(w) || cornerCut(room, w))
+}
+
+/** Ends of a cut corner's wall: on the back/front wall and on the side wall. */
+function cornerEnds(room: Pick<Room, 'w' | 'd' | 'corners'>, corner: Corner, cut: CornerCut): { onAcross: [number, number]; onSide: [number, number] } {
+  const { across, side } = cornerWalls(corner)
+  const ax = side === 'left' ? cut.x : room.w - cut.x
+  const ay = across === 'top' ? 0 : room.d
+  const sx = side === 'left' ? 0 : room.w
+  const sy = across === 'top' ? cut.y : room.d - cut.y
+  return { onAcross: [ax, ay], onSide: [sx, sy] }
+}
+
+export interface WallFrame {
+  /** where offset 0 is */
+  start: [number, number]
+  /** unit vector of increasing offset */
+  along: [number, number]
+  /** unit vector pointing into the room */
+  normal: [number, number]
+  length: number
+}
+
+/**
+ * A wall as a line: start point, direction, inward normal and length. The four sides keep their
+ * old meaning (offset from the x = 0 or y = 0 end, over the whole side). An angled corner wall
+ * starts at its end with the smaller x.
+ */
+export function wallFrame(room: Pick<Room, 'w' | 'd' | 'corners'>, wall: AnyWall): WallFrame {
+  if (!isCorner(wall)) {
+    const { along, normal } = sideAxes(wall)
+    return { start: wallPoint(room, wall, 0), along, normal, length: wall === 'top' || wall === 'bottom' ? room.w : room.d }
+  }
+  const cut = cornerCut(room, wall) ?? { x: MIN_CUT, y: MIN_CUT }
+  const { onAcross, onSide } = cornerEnds(room, wall, cut)
+  const [a, b] = onAcross[0] < onSide[0] ? [onAcross, onSide] : [onSide, onAcross]
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1])
+  const along: [number, number] = [(b[0] - a[0]) / length, (b[1] - a[1]) / length]
+  // of the two normals, the one facing the middle of the room
+  let normal: [number, number] = [-along[1], along[0]]
+  const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+  if ((room.w / 2 - mid[0]) * normal[0] + (room.d / 2 - mid[1]) * normal[1] < 0) normal = [-normal[0], -normal[1]]
+  return { start: a, along, normal, length }
+}
+
+/**
+ * The part of a wall that is actually there: a side shortened by the corners cut off at its ends
+ * ([0, length] when no corner is cut). Openings belong inside it.
+ */
+export function wallSpan(room: Pick<Room, 'w' | 'd' | 'corners'>, wall: AnyWall): [number, number] {
+  if (isCorner(wall)) return [0, wallFrame(room, wall).length]
+  const L = wallLength(room, wall)
+  const at = (c: Corner, leg: 'x' | 'y') => cornerCut(room, c)?.[leg] ?? 0
+  switch (wall) {
+    case 'top': return [at('backLeft', 'x'), L - at('backRight', 'x')]
+    case 'bottom': return [at('frontLeft', 'x'), L - at('frontRight', 'x')]
+    case 'left': return [at('backLeft', 'y'), L - at('frontLeft', 'y')]
+    case 'right': return [at('backRight', 'y'), L - at('frontRight', 'y')]
+  }
+}
+
+/** The floor outline, clockwise from the back-left corner, with cut corners in place. */
+export function roomPolygon(room: Pick<Room, 'w' | 'd' | 'corners'>): Polygon {
+  const pts: Polygon = []
+  const corner = (c: Corner, square: [number, number], first: 'across' | 'side') => {
+    const cut = cornerCut(room, c)
+    if (!cut) return pts.push(square)
+    const { onAcross, onSide } = cornerEnds(room, c, cut)
+    if (first === 'across') pts.push(onAcross, onSide)
+    else pts.push(onSide, onAcross)
+  }
+  corner('backLeft', [0, 0], 'side')
+  corner('backRight', [room.w, 0], 'across')
+  corner('frontRight', [room.w, room.d], 'side')
+  corner('frontLeft', [0, room.d], 'across')
+  return pts
+}
+
+/** The triangles cut off the rectangle: floor that is outside the room. */
+export function cutTriangles(room: Pick<Room, 'w' | 'd' | 'corners'>): Polygon[] {
+  return cutCorners(room).map((c) => {
+    const cut = cornerCut(room, c)!
+    const { onAcross, onSide } = cornerEnds(room, c, cut)
+    const { across, side } = cornerWalls(c)
+    return [onAcross, [side === 'left' ? 0 : room.w, across === 'top' ? 0 : room.d], onSide]
+  })
+}
+
+/** A convex polygon (clockwise on the plan, y down) pushed out by `d` on every side, corners mitred. */
+export function offsetPolygon(poly: Polygon, d: number): Polygon {
+  const n = poly.length
+  const lines = poly.map((a, i) => {
+    const b = poly[(i + 1) % n]
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
+    const out: [number, number] = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len]
+    return { p: [a[0] + out[0] * d, a[1] + out[1] * d] as [number, number], dir: [(b[0] - a[0]) / len, (b[1] - a[1]) / len] as [number, number] }
+  })
+  return poly.map((_, i) => {
+    const l1 = lines[(i + n - 1) % n], l2 = lines[i]
+    const den = l1.dir[0] * l2.dir[1] - l1.dir[1] * l2.dir[0]
+    if (Math.abs(den) < 1e-9) return l2.p
+    const t = ((l2.p[0] - l1.p[0]) * l2.dir[1] - (l2.p[1] - l1.p[1]) * l2.dir[0]) / den
+    return [l1.p[0] + l1.dir[0] * t, l1.p[1] + l1.dir[1] * t]
+  })
+}
+
+/** True when a rect lies on the room's floor: inside the rectangle and clear of every cut-off corner. */
+export function rectInRoom(room: Pick<Room, 'w' | 'd' | 'corners'>, r: Rect): boolean {
+  if (r.x0 < -0.01 || r.y0 < -0.01 || r.x1 > room.w + 0.01 || r.y1 > room.d + 0.01) return false
+  if (!room.corners) return true // the common case, and a hot path in the suggestions
+  return !cutTriangles(room).some((tri) => polygonIntersectsRect(tri, r))
+}
+
+/** The strip an opening covers on its wall, reaching `depth` cm into the room, as a polygon. */
+export function wallStripPolygon(room: Pick<Room, 'w' | 'd' | 'corners'>, wall: AnyWall, offset: number, width: number, depth: number): Polygon {
+  const f = wallFrame(room, wall)
+  const p = (t: number, n: number): [number, number] => [f.start[0] + f.along[0] * t + f.normal[0] * n, f.start[1] + f.along[1] * t + f.normal[1] * n]
+  return [p(offset, 0), p(offset + width, 0), p(offset + width, depth), p(offset, depth)]
+}
+
+/**
+ * Rect that an opening / radiator occupies against its wall, projected `depth` cm into the room.
+ * On an angled wall it is the box around that strip (wallStripPolygon has the exact shape).
+ */
+export function wallStripRect(room: Pick<Room, 'w' | 'd' | 'corners'>, wall: AnyWall, offset: number, width: number, depth: number): Rect {
   switch (wall) {
     case 'top':
       return { x0: offset, y0: 0, x1: offset + width, y1: depth }
@@ -174,11 +331,12 @@ export function wallStripRect(room: Room, wall: Wall, offset: number, width: num
       return { x0: 0, y0: offset, x1: depth, y1: offset + width }
     case 'right':
       return { x0: room.w - depth, y0: offset, x1: room.w, y1: offset + width }
+    default:
+      return polygonBounds(wallStripPolygon(room, wall, offset, width, depth))
   }
 }
 
-/** Unit tangent along a wall (direction of increasing offset) and the normal pointing into the room. */
-export function wallAxes(wall: Wall): { along: [number, number]; normal: [number, number] } {
+function sideAxes(wall: Wall): { along: [number, number]; normal: [number, number] } {
   switch (wall) {
     case 'top': return { along: [1, 0], normal: [0, 1] }
     case 'bottom': return { along: [1, 0], normal: [0, -1] }
@@ -187,17 +345,35 @@ export function wallAxes(wall: Wall): { along: [number, number]; normal: [number
   }
 }
 
-/** Point on a wall line at distance `t` along it from its start (x=0 or y=0 end). */
-export function wallPoint(room: Room, wall: Wall, t: number): [number, number] {
+/**
+ * Unit tangent along a wall (direction of increasing offset) and the normal pointing into the room.
+ * An angled corner wall needs the room to know its direction.
+ */
+export function wallAxes(wall: Wall): { along: [number, number]; normal: [number, number] }
+export function wallAxes(wall: AnyWall, room: Pick<Room, 'w' | 'd' | 'corners'>): { along: [number, number]; normal: [number, number] }
+export function wallAxes(wall: AnyWall, room?: Pick<Room, 'w' | 'd' | 'corners'>): { along: [number, number]; normal: [number, number] } {
+  if (!isCorner(wall)) return sideAxes(wall)
+  if (!room) throw new Error(`wallAxes: the ${wall} wall needs the room`)
+  const { along, normal } = wallFrame(room, wall)
+  return { along, normal }
+}
+
+/** Point on a wall line at distance `t` along it from its start (x=0 or y=0 end; the smaller-x end of an angled wall). */
+export function wallPoint(room: Pick<Room, 'w' | 'd' | 'corners'>, wall: AnyWall, t: number): [number, number] {
   switch (wall) {
     case 'top': return [t, 0]
     case 'bottom': return [t, room.d]
     case 'left': return [0, t]
     case 'right': return [room.w, t]
+    default: {
+      const f = wallFrame(room, wall)
+      return [f.start[0] + f.along[0] * t, f.start[1] + f.along[1] * t]
+    }
   }
 }
 
-export function wallLength(room: Room, wall: Wall) {
+export function wallLength(room: Pick<Room, 'w' | 'd' | 'corners'>, wall: AnyWall) {
+  if (isCorner(wall)) return wallFrame(room, wall).length
   return wall === 'top' || wall === 'bottom' ? room.w : room.d
 }
 
@@ -207,7 +383,7 @@ export function wallLength(room: Room, wall: Wall) {
  * A door that swings "out" sweeps away from the room: the wall normal is mirrored.
  */
 export function doorSwing(room: Room, door: Door) {
-  const { along, normal: inward } = wallAxes(door.wall)
+  const { along, normal: inward } = wallAxes(door.wall, room)
   const out = door.swing === 'out'
   const normal: [number, number] = out ? [-inward[0], -inward[1]] : inward
   const sign = door.hinge === 'left' ? 1 : -1
@@ -222,6 +398,11 @@ export function doorSwing(room: Room, door: Door) {
 /** Strip `depth` cm into the room in front of a door: what must stay clear to walk through it. */
 export function doorwayRect(room: Room, door: Door, depth = 40): Rect {
   return wallStripRect(room, door.wall, door.offset, door.width, depth)
+}
+
+/** The same strip as a polygon, exact on an angled wall too. */
+export function doorwayPolygon(room: Room, door: Door, depth = 40): Polygon {
+  return wallStripPolygon(room, door.wall, door.offset, door.width, depth)
 }
 
 /**
@@ -503,8 +684,39 @@ export function itemsGap(a: Item, b: Item) {
 }
 
 /** How much of a rect lies inside the room (0..1). */
-export function fractionInRoom(room: Pick<Room, 'w' | 'd'>, r: Rect) {
+export function fractionInRoom(room: Pick<Room, 'w' | 'd' | 'corners'>, r: Rect) {
   const area = (r.x1 - r.x0) * (r.y1 - r.y0)
   if (area <= 0) return 1
-  return overlapArea(r, { x0: 0, y0: 0, x1: room.w, y1: room.d }) / area
+  let inside = overlapArea(r, { x0: 0, y0: 0, x1: room.w, y1: room.d })
+  // a cut-off corner is outside the room too
+  if (room.corners) for (const tri of cutTriangles(room)) inside -= triangleRectOverlap(tri, r)
+  return Math.max(0, inside) / area
+}
+
+/** Area of a triangle inside a rect: the triangle clipped to the rect (Sutherland–Hodgman), then its area. */
+function triangleRectOverlap(tri: Polygon, r: Rect): number {
+  let poly: Polygon = tri
+  const clip = (inside: (p: [number, number]) => boolean, cross: (a: [number, number], b: [number, number]) => [number, number]) => {
+    const out: Polygon = []
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length]
+      if (inside(b)) {
+        if (!inside(a)) out.push(cross(a, b))
+        out.push(b)
+      } else if (inside(a)) out.push(cross(a, b))
+    }
+    poly = out
+  }
+  const atX = (x: number) => (a: [number, number], b: [number, number]): [number, number] => [x, a[1] + ((b[1] - a[1]) * (x - a[0])) / (b[0] - a[0])]
+  const atY = (y: number) => (a: [number, number], b: [number, number]): [number, number] => [a[0] + ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]), y]
+  clip((p) => p[0] >= r.x0, atX(r.x0))
+  clip((p) => p[0] <= r.x1, atX(r.x1))
+  clip((p) => p[1] >= r.y0, atY(r.y0))
+  clip((p) => p[1] <= r.y1, atY(r.y1))
+  let area = 0
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length]
+    area += a[0] * b[1] - b[0] * a[1]
+  }
+  return Math.abs(area) / 2
 }

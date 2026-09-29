@@ -4,7 +4,7 @@ import { OrbitControls } from '@react-three/drei'
 import { useEffect, useMemo, useRef } from 'react'
 import { isRugKind, rectOf } from '../geometry'
 import { useStore, type OutsideAngle } from '../store'
-import type { Item, Room, Wall } from '../types'
+import type { AnyWall, Item, Room, Wall } from '../types'
 import { cm } from './util'
 
 /* --------------------------------- cameras -------------------------------- */
@@ -28,7 +28,7 @@ function cornerFor(room: Room): [number, number, number] {
   ]
   const score = (c: (typeof corners)[number]) => {
     const seen: Wall[] = [c.x === 'left' ? 'right' : 'left', c.z === 'bottom' ? 'top' : 'bottom']
-    const walls = (list: { wall: Wall }[]) => seen.filter((wall) => list.some((o) => o.wall === wall)).length
+    const walls = (list: { wall: AnyWall }[]) => seen.filter((wall) => list.some((o) => o.wall === wall)).length
     let s = walls(room.windows) * 100 + walls(room.doors) * 10 + walls(closets)
     if (hero) {
       const mid = hero.offset + hero.width / 2

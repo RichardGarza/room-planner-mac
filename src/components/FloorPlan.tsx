@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
-import { closetClearance, closetRecessRect, doorSwing, footprint, frontRecessPad, isAxisAligned, normalizeRot, rectOf, wallAxes, wallPoint, wallStripRect } from '../geometry'
+import { closetClearance, closetRecessRect, doorSwing, footprint, frontRecessPad, isAxisAligned, isCorner, normalizeRot, rectOf, roomPolygon, wallAxes, wallPoint, wallSpan, wallStripRect } from '../geometry'
 import { isRugKind } from '../placement'
 import { useStore } from '../store'
-import type { Closet, Door, Item, Room, Wall } from '../types'
+import type { AnyWall, Closet, Door, Item, Room, Wall } from '../types'
 import { CM_PER_IN, formatLength, useUnits } from '../units'
 
 const M = 34 // margin around the room for labels (cm units in the viewBox)
@@ -60,7 +60,9 @@ export function FloorPlan() {
   const padB = frontRecessPad(room)
   const W = room.w + M * 2
   const H = room.d + M * 2 + PARK_H + padB
-  const wallsWithOpenings = new Set<Wall>([...room.windows, ...room.doors].map((o) => o.wall))
+  const wallsWithOpenings = new Set<AnyWall>([...room.windows, ...room.doors].map((o) => o.wall))
+  const outline = roomPolygon(room).map((p) => p.join(',')).join(' ')
+  const spanL = wallSpan(room, 'left'), spanR = wallSpan(room, 'right')
 
   return (
     <svg
@@ -78,18 +80,21 @@ export function FloorPlan() {
         </pattern>
       </defs>
       <g transform={`translate(${M} ${M})`}>
-        {/* floor */}
-        <rect x={0} y={0} width={room.w} height={room.d} fill="#fbf7f2" />
+        <clipPath id="plan-floor"><polygon points={outline} /></clipPath>
+        {/* floor (a cut-off corner is not part of it) */}
+        <polygon points={outline} fill="#fbf7f2" />
         {/* wall tints */}
-        <rect x={-6} y={0} width={6} height={room.d} fill={room.wallColors.left} />
-        <rect x={room.w} y={0} width={6} height={room.d} fill={room.wallColors.right} />
+        <rect x={-6} y={spanL[0]} width={6} height={spanL[1] - spanL[0]} fill={room.wallColors.left} />
+        <rect x={room.w} y={spanR[0]} width={6} height={spanR[1] - spanR[0]} fill={room.wallColors.right} />
         {/* grid */}
+        <g clipPath="url(#plan-floor)">
         {Array.from({ length: Math.floor(room.w / 50) }, (_, i) => (
           <line key={`v${i}`} x1={(i + 1) * 50} y1={0} x2={(i + 1) * 50} y2={room.d} stroke="#ede6df" strokeWidth={0.6} />
         ))}
         {Array.from({ length: Math.floor(room.d / 50) }, (_, i) => (
           <line key={`h${i}`} x1={0} y1={(i + 1) * 50} x2={room.w} y2={(i + 1) * 50} stroke="#ede6df" strokeWidth={0.6} />
         ))}
+        </g>
 
         {/* radiators */}
         {room.radiators.map((rad) => {
@@ -108,8 +113,8 @@ export function FloorPlan() {
         {/* door swings (an out-swinging door draws its arc outside the room) */}
         {room.doors.map((door) => <DoorSwing key={door.id} room={room} door={door} />)}
 
-        {/* walls */}
-        <rect x={0} y={0} width={room.w} height={room.d} fill="none" stroke="#3f3833" strokeWidth={6} />
+        {/* walls, angled ones across cut corners included */}
+        <polygon points={outline} fill="none" stroke="#3f3833" strokeWidth={6} strokeLinejoin="miter" />
         {/* windows */}
         {room.windows.map((win) => <Opening key={win.id} room={room} wall={win.wall} offset={win.offset} width={win.width} kind="window" />)}
         {/* door openings */}
@@ -149,7 +154,7 @@ export function FloorPlan() {
         {(['top', 'bottom', 'left', 'right'] as const)
           .filter((w) => !wallsWithOpenings.has(w))
           .map((w) => (
-            <WallText key={w} room={room} wall={w} t={(w === 'top' || w === 'bottom' ? room.w : room.d) / 2} text={w === 'left' ? 'LEFT WALL' : w === 'right' ? 'RIGHT WALL' : w === 'top' ? 'BACK WALL' : 'FRONT WALL'} />
+            <WallText key={w} room={room} wall={w} t={(wallSpan(room, w)[0] + wallSpan(room, w)[1]) / 2} text={w === 'left' ? 'LEFT WALL' : w === 'right' ? 'RIGHT WALL' : w === 'top' ? 'BACK WALL' : 'FRONT WALL'} />
           ))}
         <text x={room.w} y={room.d + 16} className="plan-dim" textAnchor="end">{formatLength(room.w, { unit, feet: true })}</text>
         <text transform={`translate(${room.w + 16} 6) rotate(90)`} className="plan-dim">{formatLength(room.d, { unit, feet: true })}</text>
@@ -265,32 +270,32 @@ function arcSweep(along: [number, number], normal: [number, number]) {
   return along[0] * normal[1] - along[1] * normal[0] > 0
 }
 
-function Opening({ room, wall, offset, width, kind }: { room: Room; wall: Wall; offset: number; width: number; kind: 'window' | 'door' }) {
+function Opening({ room, wall, offset, width, kind }: { room: Room; wall: AnyWall; offset: number; width: number; kind: 'window' | 'door' }) {
+  const { normal: [nx, ny] } = wallAxes(wall, room)
   const [x0, y0] = wallPoint(room, wall, offset)
   const [x1, y1] = wallPoint(room, wall, offset + width)
-  const horizontal = wall === 'top' || wall === 'bottom'
-  const rx = Math.min(x0, x1) - (horizontal ? 0 : 4)
-  const ry = Math.min(y0, y1) - (horizontal ? 4 : 0)
-  const rw = horizontal ? width : 8
-  const rh = horizontal ? 8 : width
-  if (kind === 'door') return <rect x={rx} y={ry} width={rw} height={rh} fill="#fbf7f2" />
+  // a band 8 cm across the wall line, turned with the wall (angled corner walls included)
+  const band = [[x0 - nx * 4, y0 - ny * 4], [x1 - nx * 4, y1 - ny * 4], [x1 + nx * 4, y1 + ny * 4], [x0 + nx * 4, y0 + ny * 4]].map((p) => p.join(',')).join(' ')
+  if (kind === 'door') return <polygon points={band} fill="#fbf7f2" />
   const thirds = [1 / 3, 2 / 3].map((f) => wallPoint(room, wall, offset + width * f))
   return (
     <g>
-      <rect x={rx} y={ry} width={rw} height={rh} fill="#fff" stroke="#3f3833" strokeWidth={1} />
+      <polygon points={band} fill="#fff" stroke="#3f3833" strokeWidth={1} />
       <line x1={x0} y1={y0} x2={x1} y2={y1} stroke="#8fb5d6" strokeWidth={2} />
       {thirds.map(([tx, ty], i) => (
-        <line key={i} x1={tx - (horizontal ? 0 : 4)} y1={ty - (horizontal ? 4 : 0)} x2={tx + (horizontal ? 0 : 4)} y2={ty + (horizontal ? 4 : 0)} stroke="#3f3833" strokeWidth={1} />
+        <line key={i} x1={tx - nx * 4} y1={ty - ny * 4} x2={tx + nx * 4} y2={ty + ny * 4} stroke="#3f3833" strokeWidth={1} />
       ))}
     </g>
   )
 }
 
-function WallText({ room, wall, t, text, dist = 14 }: { room: Room; wall: Wall; t: number; text: string; dist?: number }) {
+function WallText({ room, wall, t, text, dist = 14 }: { room: Room; wall: AnyWall; t: number; text: string; dist?: number }) {
   const [x, y] = wallPoint(room, wall, t)
-  const { normal } = wallAxes(wall)
+  const { along, normal } = wallAxes(wall, room)
   const ox = -normal[0] * dist, oy = -normal[1] * dist
-  const rot = wall === 'left' ? -90 : wall === 'right' ? 90 : 0
+  // along an angled wall, turned with it and kept the right way up
+  const slant = (Math.atan2(along[1], along[0]) * 180) / Math.PI
+  const rot = wall === 'left' ? -90 : wall === 'right' ? 90 : isCorner(wall) ? (slant > 90 ? slant - 180 : slant < -90 ? slant + 180 : slant) : 0
   return (
     <text transform={`translate(${x + ox} ${y + oy + (wall === 'top' ? 2 : wall === 'bottom' ? 4 : 0)}) rotate(${rot})`} className="plan-label" textAnchor="middle" dominantBaseline={rot ? 'middle' : undefined}>
       {text}

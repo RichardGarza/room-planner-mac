@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { runChecks } from '../checks'
-import { intersects, rectOf } from '../geometry'
+import { intersects, rectOf, roomWalls, wallLength } from '../geometry'
 import { bedroomTwo, forestsRoom, inch } from '../seeds'
 
 describe("Forest's Room seed", () => {
@@ -44,6 +44,16 @@ describe("Forest's Room seed", () => {
 describe('Bedroom 2 seed', () => {
   const doc = bedroomTwo()
   const placed = doc.items.filter((i) => i.inRoom)
+
+  it('puts door 1 on a 45° angled wall across the front-right corner', () => {
+    expect(doc.room.corners).toEqual({ frontRight: { x: inch(28), y: inch(28) } })
+    expect(doc.room.doors[0].wall).toBe('frontRight')
+    expect(roomWalls(doc.room)).toHaveLength(5)
+    // the door sits inside its wall
+    const door = doc.room.doors[0]
+    expect(door.offset).toBeGreaterThan(0)
+    expect(door.offset + door.width).toBeLessThan(wallLength(doc.room, 'frontRight'))
+  })
 
   it('is 11 × 11 ft with an 8 ft ceiling, two 32 in doors, a closet and the 66 in window', () => {
     expect(doc.room.w).toBe(inch(132))

@@ -1,5 +1,5 @@
 import { isAccessCheck, runChecks } from './checks'
-import { accessAllows, accessRuleFor, accessZones, areCompanions, closetClearance, doorSwing, footprint, fractionInRoom, frontZone, intersects, isAxisAligned, isRealBed, isRugKind, isSideTable, itemsGap, localToRoom, overlapArea, polygonBounds, polygonDistance, polygonIntersectsRect, polygonOf, rectDistance, rectOf, rectToPolygon, snap90, type AccessRule, type Polygon, wallLength, wallStripRect } from './geometry'
+import { accessAllows, accessRuleFor, accessZones, areCompanions, closetClearance, cornerWalls, doorSwing, isCorner, rectInRoom, wallStripPolygon, footprint, fractionInRoom, frontZone, intersects, isAxisAligned, isRealBed, isRugKind, isSideTable, itemsGap, localToRoom, overlapArea, polygonBounds, polygonDistance, polygonIntersectsRect, polygonOf, rectDistance, rectOf, rectToPolygon, snap90, type AccessRule, type Polygon, wallLength, wallStripRect } from './geometry'
 import type { Check, Item, ItemKind, ItemPlacement, Layout, Rect, Room, Rot, Wall } from './types'
 
 /**
@@ -175,7 +175,7 @@ function spotRect(item: Pick<Item, 'w' | 'd'>, spot: Spot): Rect {
 }
 
 function insideRoom(room: Room, r: Rect) {
-  return r.x0 >= -0.01 && r.y0 >= -0.01 && r.x1 <= room.w + 0.01 && r.y1 <= room.d + 0.01
+  return rectInRoom(room, r)
 }
 
 function touchesWall(room: Room, r: Rect, wall: Wall, reach = 5) {
@@ -234,8 +234,8 @@ function underWindow(ctx: Ctx, r: Rect) {
 /** True when the rect reaches into the doorway or the quarter circle an inward door leaf sweeps. */
 function doorBlocks(room: Room, rect: Rect): boolean {
   for (const door of room.doors) {
-    const strip = wallStripRect(room, door.wall, door.offset, door.width, door.swing === 'out' ? Math.min(60, door.width) : DOORWAY_DEPTH)
-    if (intersects(rect, strip)) return true
+    const depth = door.swing === 'out' ? Math.min(60, door.width) : DOORWAY_DEPTH
+    if (isCorner(door.wall) ? polygonIntersectsRect(wallStripPolygon(room, door.wall, door.offset, door.width, depth), rect) : intersects(rect, wallStripRect(room, door.wall, door.offset, door.width, depth))) return true
     if (door.swing === 'out') continue
     const { hx, hy, r, leafDir } = doorSwing(room, door)
     if (rect.x1 <= hx - r || rect.x0 >= hx + r || rect.y1 <= hy - r || rect.y0 >= hy + r) continue
@@ -329,13 +329,15 @@ function grow(r: Rect, by: number): Rect {
 function makeCtx(room: Room, locked: Item[] = []): Ctx {
   return {
     room,
+    // a window on an angled corner wall has nothing standing under it in the sense used here
     windows: room.windows
-      .filter((w) => w.width > 0)
+      .filter((w): w is typeof w & { wall: Wall } => w.width > 0 && !isCorner(w.wall))
       .map((w) => ({ rect: wallStripRect(room, w.wall, w.offset, w.width, WINDOW_DEPTH), sill: w.sill, height: w.height, wall: w.wall, offset: w.offset, width: w.width })),
     radiators: room.radiators.filter((r) => r.width > 0).map((r) => wallStripRect(room, r.wall, r.offset, r.width, r.depth + RADIATOR_CLEAR)),
     approaches: room.doors.map((d) => wallStripRect(room, d.wall, Math.max(0, d.offset - PATH), d.width + 2 * PATH, 100)),
     closets: (room.closets ?? []).map((c) => closetClearance(room, c).rect),
-    doorWalls: new Set(room.doors.map((d) => d.wall)),
+    // a door across a corner counts for both walls it joins
+    doorWalls: new Set(room.doors.flatMap((d): Wall[] => (isCorner(d.wall) ? [cornerWalls(d.wall).across, cornerWalls(d.wall).side] : [d.wall]))),
     locked,
     wantsSideTables: false,
     budget: BUDGET,

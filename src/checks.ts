@@ -1,4 +1,4 @@
-import { accessAllows, accessZones, closetClearance, closetLabel, doorClearanceFor, doorwayRect, fractionInRoom, gapBetween, isRugKind, itemsGap, itemsIntersect, overlapArea, polygonIntersectsRect, polygonOf, polygonsIntersect, rectOf, wallStripRect, type AccessZone } from './geometry'
+import { accessAllows, accessZones, closetClearance, closetLabel, cutTriangles, doorClearanceFor, doorwayPolygon, isCorner, wallStripPolygon, fractionInRoom, gapBetween, isRugKind, itemsGap, itemsIntersect, overlapArea, polygonIntersectsRect, polygonOf, polygonsIntersect, rectOf, wallStripRect, type AccessZone } from './geometry'
 import type { Check, Item, Rect, Room, Wall } from './types'
 
 const MIN_PASSAGE = 60
@@ -97,9 +97,11 @@ export function runChecks(room: Room, items: Item[], opts: CheckOptions = {}): C
     .filter((i) => i.kind === 'bed' && Math.min(i.w, i.d) >= 85)
     .sort((a, b) => b.w * b.d - a.w * a.d)[0]
 
+  const cuts = cutTriangles(room)
   // 1. Items poking through walls (the turned corners, so an angled piece is judged by its real outline) or the ceiling
   for (const it of inRoom) {
-    if (polygonOf(it).some(([x, y]) => x < -0.5 || y < -0.5 || x > room.w + 0.5 || y > room.d + 0.5)) {
+    const poly = polygonOf(it)
+    if (poly.some(([x, y]) => x < -0.5 || y < -0.5 || x > room.w + 0.5 || y > room.d + 0.5) || cuts.some((tri) => polygonsIntersect(poly, tri))) {
       checks.push({ level: 'bad', text: `${it.name} goes through a wall`, itemIds: [it.id] })
     }
     if (it.h > room.h + 0.5) {
@@ -131,10 +133,17 @@ export function runChecks(room: Room, items: Item[], opts: CheckOptions = {}): C
     const label = nameOf('window', i, room.windows.length)
     // a radiator under the window keeps furniture that far from the wall; still counts as "against the wall"
     const radDepth = Math.max(0, ...room.radiators.filter((r) => r.wall === win.wall && spanOverlap(r, win) > 0).map((r) => r.depth))
+    const wall = win.wall
+    // on an angled wall: whatever reaches the strip in front of the window stands under it
+    const strip = isCorner(wall) ? wallStripPolygon(room, wall, win.offset + MIN_SPAN / 2, Math.max(1, win.width - MIN_SPAN), WALL_TOUCH) : null
     for (const it of solid) {
       const r = rectOf(it)
-      if (!touchesWall(room, r, win.wall, WALL_TOUCH + radDepth)) continue
-      if (spanOverlap(spanOf(r, win.wall), win) < MIN_SPAN) continue
+      if (isCorner(wall)) {
+        if (!strip || !polygonsIntersect(polygonOf(it), strip, 0)) continue
+      } else {
+        if (!touchesWall(room, r, wall, WALL_TOUCH + radDepth)) continue
+        if (spanOverlap(spanOf(r, wall), win) < MIN_SPAN) continue
+      }
       if (it.h <= win.sill) {
         checks.push({ level: 'ok', text: `${it.name} fits under ${label} with ${len(win.sill - it.h)} to spare`, itemIds: [it.id] })
         continue
@@ -179,8 +188,8 @@ export function runChecks(room: Room, items: Item[], opts: CheckOptions = {}): C
         return
       }
     } else {
-      const strip = doorwayRect(room, door, DOORWAY_DEPTH)
-      const blockers = solid.filter((it) => polygonIntersectsRect(polygonOf(it), strip))
+      const strip = doorwayPolygon(room, door, DOORWAY_DEPTH)
+      const blockers = solid.filter((it) => polygonsIntersect(polygonOf(it), strip))
       for (const it of blockers) {
         checks.push({ level: 'bad', text: `${it.name} blocks the doorway${several ? ` of ${label}` : ''}`, itemIds: [it.id] })
       }

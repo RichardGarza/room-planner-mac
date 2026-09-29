@@ -1,4 +1,4 @@
-import { footprint, wallAxes, wallPoint } from '../geometry'
+import { footprint, roomPolygon, wallAxes, wallPoint } from '../geometry'
 import { roomOpenings } from '../library'
 import type { Door, Item, Room } from '../types'
 
@@ -15,15 +15,16 @@ export function PlanThumb({ room, items, size = 180 }: { room: Room; items: Item
   const rugs = inRoom.filter((i) => i.kind === 'rug' || i.kind === 'rugRect')
   const solids = inRoom.filter((i) => i.kind !== 'rug' && i.kind !== 'rugRect')
   const height = Math.round((size * 3) / 4)
+  const outline = roomPolygon(room).map((p) => p.join(',')).join(' ')
 
   return (
     <svg className="plan-thumb" viewBox={`0 0 ${W} ${H}`} width={size} height={height} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
       <g transform={`translate(${PAD} ${PAD})`}>
-        <rect x={0} y={0} width={room.w} height={room.d} fill="#fbf7f2" />
+        <polygon points={outline} fill="#fbf7f2" />
         {rugs.map((it) => <ThumbItem key={it.id} item={it} />)}
         {solids.map((it) => <ThumbItem key={it.id} item={it} />)}
         {doors.map((d, i) => <DoorArc key={`arc${i}`} room={room} door={d} />)}
-        <rect x={0} y={0} width={room.w} height={room.d} fill="none" stroke="#3f3833" strokeWidth={6} />
+        <polygon points={outline} fill="none" stroke="#3f3833" strokeWidth={6} strokeLinejoin="miter" />
         {windows.map((o, i) => <WindowMark key={`w${i}`} room={room} wall={o.wall} offset={o.offset} width={o.width} />)}
         {doors.map((d, i) => <DoorGap key={`d${i}`} room={room} wall={d.wall} offset={d.offset} width={d.width} />)}
       </g>
@@ -48,24 +49,20 @@ function ThumbItem({ item }: { item: Item }) {
   )
 }
 
+/** The opening's two ends and an 8 cm band across the wall line, turned with the wall. */
 function openingBox(room: Room, wall: Door['wall'], offset: number, width: number) {
   const [x0, y0] = wallPoint(room, wall, offset)
   const [x1, y1] = wallPoint(room, wall, offset + width)
-  const horizontal = wall === 'top' || wall === 'bottom'
-  return {
-    x0, y0, x1, y1,
-    rx: Math.min(x0, x1) - (horizontal ? 0 : 4),
-    ry: Math.min(y0, y1) - (horizontal ? 4 : 0),
-    rw: horizontal ? width : 8,
-    rh: horizontal ? 8 : width,
-  }
+  const { normal: [nx, ny] } = wallAxes(wall, room)
+  const band = [[x0 - nx * 4, y0 - ny * 4], [x1 - nx * 4, y1 - ny * 4], [x1 + nx * 4, y1 + ny * 4], [x0 + nx * 4, y0 + ny * 4]].map((p) => p.join(',')).join(' ')
+  return { x0, y0, x1, y1, band }
 }
 
 function WindowMark({ room, wall, offset, width }: { room: Room; wall: Door['wall']; offset: number; width: number }) {
   const b = openingBox(room, wall, offset, width)
   return (
     <g>
-      <rect x={b.rx} y={b.ry} width={b.rw} height={b.rh} fill="#fff" stroke="#3f3833" strokeWidth={1} />
+      <polygon points={b.band} fill="#fff" stroke="#3f3833" strokeWidth={1} />
       <line x1={b.x0} y1={b.y0} x2={b.x1} y2={b.y1} stroke="#8fb5d6" strokeWidth={3} />
     </g>
   )
@@ -73,11 +70,11 @@ function WindowMark({ room, wall, offset, width }: { room: Room; wall: Door['wal
 
 function DoorGap({ room, wall, offset, width }: { room: Room; wall: Door['wall']; offset: number; width: number }) {
   const b = openingBox(room, wall, offset, width)
-  return <rect x={b.rx} y={b.ry} width={b.rw} height={b.rh} fill="#fbf7f2" />
+  return <polygon points={b.band} fill="#fbf7f2" />
 }
 
 function DoorArc({ room, door }: { room: Room; door: Door }) {
-  const { along, normal } = wallAxes(door.wall)
+  const { along, normal } = wallAxes(door.wall, room)
   const sign = door.hinge === 'left' ? 1 : -1
   const out = door.swing === 'out' ? -1 : 1
   const [hx, hy] = wallPoint(room, door.wall, door.hinge === 'left' ? door.offset : door.offset + door.width)

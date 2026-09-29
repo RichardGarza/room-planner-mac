@@ -3,7 +3,8 @@ import { useLayoutEffect, useMemo } from 'react'
 import { useStore } from '../store'
 import type { Room } from '../types'
 import { groundFadeTexture, PLANK_GAIN, plankMaps } from './textures'
-import { cm } from './util'
+import { roomPolygon } from '../geometry'
+import { cm, useDisposable } from './util'
 
 /* ---------------------------------- floor --------------------------------- */
 
@@ -31,10 +32,22 @@ export function Floor({ room }: { room: Room }) {
   const maps = useFloorMaps(quality, W, D)
   const tint = useMemo(() => floorTint(room.floorColor), [room.floorColor])
   const fade = groundFadeTexture()
+  // the floor follows the room outline, cut corners included. Turned flat by the mesh (-90° about x),
+  // shape y becomes -z, so the outline goes in with y negated. UVs run 0..1 over the room box with
+  // v growing toward the back wall, as the old plane had them, so the planks keep their direction.
+  const outlineKey = JSON.stringify(roomPolygon(room))
+  const geo = useDisposable(useMemo(() => {
+    const g = new THREE.ShapeGeometry(new THREE.Shape(roomPolygon(room).map(([x, y]) => new THREE.Vector2(cm(x), -cm(y)))))
+    const pos = g.attributes.position
+    const uv = new Float32Array(pos.count * 2)
+    for (let i = 0; i < pos.count; i++) { uv[i * 2] = pos.getX(i) / W; uv[i * 2 + 1] = (pos.getY(i) + D) / D }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+    return g
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outlineKey, W, D]))
   return (
     <>
-      <mesh position={[W / 2, 0, D / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[W, D]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} geometry={geo} receiveShadow>
         <meshStandardMaterial
           color={tint}
           map={maps.map}

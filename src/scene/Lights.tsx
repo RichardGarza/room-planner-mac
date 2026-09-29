@@ -24,7 +24,7 @@ function windowFrame(room: Room) {
   const W = cm(room.w)
   if (!win) return { centre: new THREE.Vector3(W / 2, 1.5, 0), out: new THREE.Vector3(0, 0, -1), along: new THREE.Vector3(1, 0, 0) }
   const [px, py] = wallPoint(room, win.wall, win.offset + win.width / 2)
-  const { normal, along } = wallAxes(win.wall)
+  const { normal, along } = wallAxes(win.wall, room)
   return {
     centre: new THREE.Vector3(cm(px), cm(win.sill + win.height / 2), cm(py)),
     out: new THREE.Vector3(-normal[0], 0, -normal[1]), // wallAxes' normal points into the room

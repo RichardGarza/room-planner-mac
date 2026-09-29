@@ -1,5 +1,5 @@
-import { doorSwing, isRugKind, rectOf, wallAxes, wallPoint, wallStripRect } from '../geometry'
-import type { Door, Item, Opening, Room, Wall } from '../types'
+import { doorSwing, isCorner, isRugKind, offsetPolygon, rectOf, roomPolygon, wallAxes, wallPoint, wallStripRect } from '../geometry'
+import type { AnyWall, Door, Item, Opening, Room, Wall } from '../types'
 import type { Unit } from '../units'
 import { asciiLength, asciiSize, asciiText, checkBar, dateText, scaleNote } from './labels'
 import { SCALES, esc, mmPerCm, packPieces, pageSize, printableArea, r2, rectsOverlap, shade, textWidth, tint, type PlacedPiece } from './layout'
@@ -169,6 +169,20 @@ export function placeRoom(room: Room, draw: Box): RoomPlacement {
   return placement!
 }
 
+/** The four corners (mm) an opening covers across the wall thickness, on any wall. */
+function wallBand(p: RoomPlacement, room: Room, wall: AnyWall, offset: number, width: number): [number, number][] {
+  const { normal } = wallAxes(wall, room)
+  const at = (t: number, out: number): [number, number] => {
+    const [x, y] = wallPoint(room, wall, t)
+    return [p.ox + x * p.k - normal[0] * out, p.oy + y * p.k - normal[1] * out]
+  }
+  return [at(offset, 0), at(offset + width, 0), at(offset + width, p.WT), at(offset, p.WT)]
+}
+
+function polygonSvg(pts: [number, number][], attrs: string): string {
+  return `<polygon points="${pts.map(([x, y]) => `${r2(x)},${r2(y)}`).join(' ')}" ${attrs}/>`
+}
+
 /** Box (mm) an opening occupies across the wall thickness. */
 function wallBox(p: RoomPlacement, wall: Wall, offset: number, width: number): Box {
   const { ox, oy, W, D, WT, k } = p
@@ -181,13 +195,21 @@ function wallBox(p: RoomPlacement, wall: Wall, offset: number, width: number): B
 }
 
 /** Text outside a wall, centred on `t` cm along it, `dist` mm from the wall's outer face. */
-function wallText(p: RoomPlacement, room: Room, wall: Wall, t: number, s: string, dist: number, opts: TextOpts = {}): string {
+function wallText(p: RoomPlacement, room: Room, wall: AnyWall, t: number, s: string, dist: number, opts: TextOpts = {}): string {
   const [cx, cy] = wallPoint(room, wall, t)
-  const { normal } = wallAxes(wall)
+  const { normal, along } = wallAxes(wall, room)
   const size = opts.size ?? F_MIN
   const x = p.ox + cx * p.k
   const y = p.oy + cy * p.k
   const off = p.WT + dist
+  if (isCorner(wall)) {
+    // along the angled wall, outside it, the right way up
+    let deg = (Math.atan2(along[1], along[0]) * 180) / Math.PI
+    if (deg > 90) deg -= 180
+    if (deg < -90) deg += 180
+    const d = off + size * 0.4
+    return text(x - normal[0] * d, y - normal[1] * d + size * 0.35, s, { ...opts, size, anchor: 'middle', rotate: deg })
+  }
   switch (wall) {
     case 'top': return text(x, y - off, s, { ...opts, size, anchor: 'middle' })
     case 'bottom': return text(x, y + off + size * 0.75, s, { ...opts, size, anchor: 'middle' })
@@ -230,13 +252,20 @@ export function drawRoom(room: Room, p: RoomPlacement, unit: Unit, opts: { hint?
     out.push(rect(b, `fill="url(#rp-hatch)" stroke="#9a8f86" stroke-width="0.25"`))
   }
 
-  // walls: outer rect minus inner rect
-  out.push(
-    `<path d="M ${r2(ox - WT)} ${r2(oy - WT)} h ${r2(W + 2 * WT)} v ${r2(D + 2 * WT)} h ${r2(-(W + 2 * WT))} Z M ${r2(ox)} ${r2(oy)} h ${r2(W)} v ${r2(D)} h ${r2(-W)} Z" fill="${INK}" fill-rule="evenodd"/>`,
-  )
+  // walls: the outline pushed out by the wall thickness, minus the outline (cut corners included)
+  const inner = roomPolygon(room).map(([x, y]): [number, number] => [ox + x * k, oy + y * k])
+  const ring = (pts: [number, number][]) => `M ${pts.map(([x, y]) => `${r2(x)} ${r2(y)}`).join(' L ')} Z`
+  out.push(`<path d="${ring(offsetPolygon(inner, WT))} ${ring(inner)}" fill="${INK}" fill-rule="evenodd"/>`)
 
   // windows: white gap with a double line
   for (const win of room.windows) {
+    if (isCorner(win.wall)) {
+      const [a, b, c, d] = wallBand(p, room, win.wall, win.offset, win.width)
+      out.push(polygonSvg([a, b, c, d], `fill="${PAPER}" stroke="${INK}" stroke-width="0.25"`))
+      for (const f of [0.35, 0.65]) out.push(line(a[0] + (d[0] - a[0]) * f, a[1] + (d[1] - a[1]) * f, b[0] + (c[0] - b[0]) * f, b[1] + (c[1] - b[1]) * f, INK, 0.25))
+      out.push(wallText(p, room, win.wall, win.offset + win.width / 2, windowLabel(win, unit), 1.4))
+      continue
+    }
     const b = wallBox(p, win.wall, win.offset, win.width)
     const horizontal = win.wall === 'top' || win.wall === 'bottom'
     out.push(rect(b, `fill="${PAPER}" stroke="${INK}" stroke-width="0.25"`))
@@ -249,8 +278,8 @@ export function drawRoom(room: Room, p: RoomPlacement, unit: Unit, opts: { hint?
 
   // doors: gap, leaf and swing arc
   for (const door of room.doors) {
-    const b = wallBox(p, door.wall, door.offset, door.width)
-    out.push(rect(b, `fill="${PAPER}"`))
+    if (isCorner(door.wall)) out.push(polygonSvg(wallBand(p, room, door.wall, door.offset, door.width), `fill="${PAPER}"`))
+    else out.push(rect(wallBox(p, door.wall, door.offset, door.width), `fill="${PAPER}"`))
     const s = doorSwing(room, door)
     const hx = ox + s.hx * k, hy = oy + s.hy * k, r = s.r * k
     const [lx, ly] = s.leafDir(90)

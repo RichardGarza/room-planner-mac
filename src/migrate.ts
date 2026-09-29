@@ -1,5 +1,6 @@
 import { defaultRoom } from './data'
-import type { Closet, Door, Item, ItemKind, ItemPlacement, Layout, Opening, Radiator, Room, RoomDoc, Rot, Wall } from './types'
+import { CORNERS, cornerWalls, isCorner } from './geometry'
+import type { AnyWall, Closet, Corner, CornerCut, Door, Item, ItemKind, ItemPlacement, Layout, Opening, Radiator, Room, RoomDoc, Rot, Wall } from './types'
 
 export const DOC_VERSION = 2
 
@@ -19,6 +20,18 @@ export function nextOpeningId(prefix: string, existing: { id: string }[]): strin
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
 const wallOf = (v: unknown, fallback: Wall): Wall => (WALLS.includes(v as Wall) ? (v as Wall) : fallback)
+const anyWallOf = (v: unknown, fallback: AnyWall): AnyWall => (WALLS.includes(v as Wall) || CORNERS.includes(v as Corner) ? (v as AnyWall) : fallback)
+
+/** Cut corners with two positive legs; anything else is dropped (the corner stays square). */
+function fixCorners(raw: unknown): Room['corners'] {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: NonNullable<Room['corners']> = {}
+  for (const c of CORNERS) {
+    const v = (raw as Record<string, unknown>)[c] as Partial<CornerCut> | undefined
+    if (v && typeof v === 'object' && num(v.x, 0) > 0 && num(v.y, 0) > 0) out[c] = { x: num(v.x, 0), y: num(v.y, 0) }
+  }
+  return Object.keys(out).length ? out : undefined
+}
 const idOf = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null)
 
 type Unkeyed<T> = Omit<T, 'id'> & { id: string | null }
@@ -27,7 +40,7 @@ function fixWindow(raw: unknown, base: Opening): Unkeyed<Opening> {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<Opening>
   return {
     id: idOf(o.id),
-    wall: wallOf(o.wall, base.wall),
+    wall: anyWallOf(o.wall, base.wall),
     offset: num(o.offset, base.offset),
     width: num(o.width, base.width),
     height: num(o.height, base.height),
@@ -115,17 +128,21 @@ export function migrateRoom(raw: unknown): Room {
   const closets = withIds(closetRaw.map((o) => fixCloset(o, baseCloset)), 'c').filter((o) => o.width > 0)
 
   const colors = (r.wallColors && typeof r.wallColors === 'object' ? r.wallColors : {}) as Partial<Room['wallColors']>
+  const corners = fixCorners(r.corners)
+  // a window or door on a corner that is not cut off moves to that corner's back or front wall
+  const onRealWall = <T extends Opening>(o: T): T => (isCorner(o.wall) && !corners?.[o.wall] ? { ...o, wall: cornerWalls(o.wall).across } : o)
   return {
     name: typeof r.name === 'string' ? r.name : defaultRoom.name,
     subtitle: typeof r.subtitle === 'string' ? r.subtitle : defaultRoom.subtitle,
     w: num(r.w, defaultRoom.w),
     d: num(r.d, defaultRoom.d),
     h: num(r.h, defaultRoom.h),
-    windows,
-    doors,
+    windows: windows.map(onRealWall),
+    doors: doors.map(onRealWall),
     radiators,
     closets,
     wallColors: { ...defaultRoom.wallColors, ...colors },
+    ...(corners ? { corners } : {}),
     floorColor: typeof r.floorColor === 'string' ? r.floorColor : defaultRoom.floorColor,
   }
 }

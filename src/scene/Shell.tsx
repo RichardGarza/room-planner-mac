@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { CLOSET_HEIGHT, wallLength } from '../geometry'
+import { CLOSET_HEIGHT, cornerWalls, isCorner, roomPolygon, roomWalls, wallFrame, wallLength, wallSpan } from '../geometry'
 import { useStore } from '../store'
-import type { Door, Opening, Radiator as RadiatorSpec, Room, Wall } from '../types'
+import type { AnyWall, Door, Opening, Radiator as RadiatorSpec, Room } from '../types'
 import { Closet } from './Closet'
 import { PENDANT_DROP } from './Lights'
 import { HALL_STENCIL, MASK_ORDER, MaskPlane, Outside, stencilTest, WORLD_ORDER } from './Outside'
@@ -17,14 +17,50 @@ import { cm, mergedBoxes, profileAlongX, seeded, starShape, useDisposable, WALL_
  * local y is up and local +z points into the room. Everything on the wall is built
  * in those local coordinates, so a window or door can sit on any wall.
  */
-export function wallTransform(room: Room, wall: Wall): { position: [number, number, number]; rotation: [number, number, number]; scale: [number, number, number] } {
+export function wallTransform(room: Room, wall: AnyWall): { position: [number, number, number]; rotation: [number, number, number]; scale: [number, number, number] } {
   const W = cm(room.w), D = cm(room.d)
   switch (wall) {
     case 'top': return { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }
     case 'bottom': return { position: [0, 0, D], rotation: [0, Math.PI, 0], scale: [-1, 1, 1] }
     case 'left': return { position: [0, 0, 0], rotation: [0, -Math.PI / 2, 0], scale: [1, 1, -1] }
     case 'right': return { position: [W, 0, 0], rotation: [0, -Math.PI / 2, 0], scale: [1, 1, 1] }
+    default: {
+      // an angled corner wall: local x runs along it from its start, local +z into the room
+      const { start, along, normal } = wallFrame(room, wall)
+      const theta = Math.atan2(-along[1], along[0])
+      // turning local x onto `along` puts local +z on (-along.y, along.x); mirror z when that faces out
+      const flip = -along[1] * normal[0] + along[0] * normal[1] < 0
+      return { position: [cm(start[0]), 0, cm(start[1])], rotation: [0, theta, 0], scale: [1, 1, flip ? -1 : 1] }
+    }
   }
+}
+
+/**
+ * How far each end of a wall's box reaches past its span so the outside corners close: the full
+ * wall thickness at a square corner, WALL_T · tan(turn / 2) where it meets an angled wall.
+ */
+function wallEnds(room: Room, wall: AnyWall): [number, number] {
+  const walls = roomWalls(room)
+  const i = walls.indexOf(wall)
+  const dirOf = (w: AnyWall) => wallFrame(room, w).along
+  // the angle the wall line turns through at the joint: 90° at a square corner, 45° into a 45° cut
+  const turn = (a: AnyWall, b: AnyWall) => {
+    const u = dirOf(a), v = dirOf(b)
+    return Math.acos(Math.min(1, Math.abs(u[0] * v[0] + u[1] * v[1])))
+  }
+  // the two ends of the part of a wall that is there (a side shortened by the cuts at its corners)
+  const ends = (w: AnyWall): [[number, number], [number, number]] => {
+    const f = wallFrame(room, w)
+    const [s0, s1] = wallSpan(room, w)
+    return [[f.start[0] + f.along[0] * s0, f.start[1] + f.along[1] * s0], [f.start[0] + f.along[0] * s1, f.start[1] + f.along[1] * s1]]
+  }
+  const neighbours = [walls[(i + walls.length - 1) % walls.length], walls[(i + 1) % walls.length]]
+  const ext = (p: [number, number]) => {
+    const other = neighbours.find((w) => ends(w).some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1))
+    return other ? WALL_T * Math.tan(turn(wall, other) / 2) : WALL_T
+  }
+  const [startPt, endPt] = ends(wall)
+  return [ext(startPt), ext(endPt)]
 }
 
 export type Detail = 'best' | 'fast'
@@ -99,7 +135,10 @@ export function Shell({ room }: { room: Room }) {
   const daytime = useStore((s) => s.daytime)
   const quality = useStore((s) => s.quality)
   const W = cm(room.w), D = cm(room.d), H = cm(room.h)
-  const walls = useRef<Record<Wall, THREE.Group | null>>({ top: null, bottom: null, left: null, right: null })
+  const walls = useRef<Partial<Record<AnyWall, THREE.Group | null>>>({})
+  const wallList = roomWalls(room)
+  // each wall's line on the plan (m), to hide the walls between an outside camera and the room
+  const frames = useMemo(() => wallList.map((w) => ({ wall: w, f: wallFrame(room, w) })), [room, wallList.join()])
   const ceiling = useRef<THREE.Group>(null)
   const pendant = useRef<THREE.Group>(null)
   const dir = useMemo(() => new THREE.Vector3(), [])
@@ -107,11 +146,13 @@ export function Shell({ room }: { room: Room }) {
   useFrame(({ camera }) => {
     const c = camera.position
     const outside = view === 'outside'
-    const w = walls.current
-    if (w.top) w.top.visible = !(outside && c.z < 0.2)
-    if (w.bottom) w.bottom.visible = !(outside && c.z > D - 0.2)
-    if (w.left) w.left.visible = !(outside && c.x < 0.2)
-    if (w.right) w.right.visible = !(outside && c.x > W - 0.2)
+    for (const { wall, f } of frames) {
+      const g = walls.current[wall]
+      if (!g) continue
+      // how far the camera stands in front of the wall, on the room side (negative: outside it)
+      const inFront = (c.x - cm(f.start[0])) * f.normal[0] + (c.z - cm(f.start[1])) * f.normal[1]
+      g.visible = !(outside && inFront < -0.2)
+    }
     // The ceiling faces down, so from above it is culled by itself; from outside below the
     // ceiling line it would hide the room, so it goes away there.
     if (ceiling.current) ceiling.current.visible = !(outside && c.y < H)
@@ -120,6 +161,17 @@ export function Shell({ room }: { room: Room }) {
     if (pendant.current) pendant.current.visible = !(outside && c.y > H && -dir.y > 0.8)
   })
 
+  // the ceiling follows the floor outline (cut corners included); UVs run 0..1 over the room box
+  const outlineKey = JSON.stringify(roomPolygon(room))
+  const ceilGeo = useDisposable(useMemo(() => {
+    const g = new THREE.ShapeGeometry(new THREE.Shape(roomPolygon(room).map(([x, y]) => new THREE.Vector2(cm(x), cm(y)))))
+    const pos = g.attributes.position
+    const uv = new Float32Array(pos.count * 2)
+    for (let i = 0; i < pos.count; i++) { uv[i * 2] = pos.getX(i) / W; uv[i * 2 + 1] = pos.getY(i) / D }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+    return g
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outlineKey, W, D]))
   const ceilMat = useDisposable(useMemo(() => {
     const m = new THREE.MeshStandardMaterial({ color: '#f7f4ef', roughness: 1, envMapIntensity: 1.3, emissive: '#fffaf2', emissiveIntensity: 0 })
     if (quality === 'best') {
@@ -149,15 +201,13 @@ export function Shell({ room }: { room: Room }) {
       </mesh>
       {/* ceiling (underside only) */}
       <group ref={ceiling}>
-        <mesh position={[W / 2, H, D / 2]} rotation={[Math.PI / 2, 0, 0]} material={ceilMat} receiveShadow>
-          <planeGeometry args={[W, D]} />
-        </mesh>
+        <mesh position={[0, H, 0]} rotation={[Math.PI / 2, 0, 0]} geometry={ceilGeo} material={ceilMat} receiveShadow />
       </group>
       <group ref={pendant}>
         <Pendant position={[W / 2, H, D / 2]} daytime={daytime} />
       </group>
 
-      {(['top', 'bottom', 'left', 'right'] as Wall[]).map((wall) => {
+      {wallList.map((wall) => {
         const t = wallTransform(room, wall)
         return (
           <group key={wall} ref={(g) => { walls.current[wall] = g }} position={t.position} rotation={t.rotation} scale={t.scale}>
@@ -210,9 +260,13 @@ function Pendant({ position, daytime }: { position: [number, number, number]; da
 }
 
 /** One wall in its local frame: solid plaster pieces around any openings, plus what hangs on it. */
-export function WallFace({ room, wall, daytime, detail }: { room: Room; wall: Wall; daytime: boolean; detail: Detail }) {
+export function WallFace({ room, wall, daytime, detail }: { room: Room; wall: AnyWall; daytime: boolean; detail: Detail }) {
   const L = cm(wallLength(room, wall)), H = cm(room.h)
-  const color = room.wallColors[wall]
+  // the part of the wall that is there: a side stops where a cut corner starts
+  const [span0, span1] = wallSpan(room, wall).map(cm)
+  const [ext0, ext1] = wallEnds(room, wall)
+  // an angled wall takes the colour of the side wall it turns into
+  const color = room.wallColors[isCorner(wall) ? cornerWalls(wall).side : wall]
   const windows = room.windows.filter((o) => o.wall === wall)
   const doors = room.doors.filter((o) => o.wall === wall)
   const radiators = room.radiators.filter((o) => o.wall === wall)
@@ -229,9 +283,9 @@ export function WallFace({ room, wall, daytime, detail }: { room: Room; wall: Wa
   const openingsKey = JSON.stringify(openings)
   const pieces = useMemo(() => {
     const out: { x: number; y: number; w: number; h: number }[] = []
-    let cursor = 0
+    let cursor = span0
     for (const o of openings) {
-      const o0 = Math.max(cursor, cm(o.offset)), o1 = Math.min(L, cm(o.offset + o.width))
+      const o0 = Math.max(cursor, cm(o.offset)), o1 = Math.min(span1, cm(o.offset + o.width))
       if (o1 <= o0) continue
       const s = cm(o.sill), t = cm(o.sill + o.height)
       if (o0 > cursor) out.push({ x: (cursor + o0) / 2, y: H / 2, w: o0 - cursor, h: H })
@@ -239,32 +293,32 @@ export function WallFace({ room, wall, daytime, detail }: { room: Room; wall: Wa
       if (t < H) out.push({ x: (o0 + o1) / 2, y: (t + H) / 2, w: o1 - o0, h: H - t })
       cursor = o1
     }
-    if (cursor < L) out.push({ x: (cursor + L) / 2, y: H / 2, w: L - cursor, h: H })
-    // the end pieces extend by the wall thickness so the corners close up
+    if (cursor < span1) out.push({ x: (cursor + span1) / 2, y: H / 2, w: span1 - cursor, h: H })
+    // the end pieces reach past the wall's ends so the outside corners close up (see wallEnds)
     return out.map((p, i) => {
-      const ext = (i === 0 ? WALL_T : 0) + (i === out.length - 1 ? WALL_T : 0)
-      const shift = (i === out.length - 1 ? WALL_T / 2 : 0) - (i === 0 ? WALL_T / 2 : 0)
-      return { ...p, x: p.x + shift, w: p.w + ext, geo: worldUvBox(p.w + ext, p.h, WALL_T) }
+      const a = i === 0 && p.x - p.w / 2 <= span0 + 1e-6 ? ext0 : 0
+      const b = i === out.length - 1 && p.x + p.w / 2 >= span1 - 1e-6 ? ext1 : 0
+      return { ...p, x: p.x + (b - a) / 2, w: p.w + a + b, geo: worldUvBox(p.w + a + b, p.h, WALL_T) }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [L, H, openingsKey])
+  }, [L, H, openingsKey, span0, span1, ext0, ext1])
   useDisposable(useMemo(() => pieces.map((p) => p.geo), [pieces]))
 
   // Skirting and cornice run along the wall; the skirting stops at each door and closet.
   const doorsKey = JSON.stringify(doors), cutsKey = JSON.stringify(cuts)
   const skirting = useDisposable(useMemo(() => {
     const runs: [number, number][] = []
-    let sc = 0
+    let sc = span0
     for (const d of [...doors, ...cuts].sort((a, b) => a.offset - b.offset)) {
       const d0 = cm(d.offset) - 0.05, d1 = cm(d.offset + d.width) + 0.05
       if (d0 > sc) runs.push([sc, d0])
       sc = Math.max(sc, d1)
     }
-    if (sc < L) runs.push([sc, L])
+    if (sc < span1) runs.push([sc, span1])
     return runs.map(([a, b]) => profileAlongX(skirtProfile, a, b))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [L, doorsKey, cutsKey]))
-  const cornice = useDisposable(useMemo(() => profileAlongX(corniceProfile(H), 0, L), [H, L]))
+  }, [span0, span1, doorsKey, cutsKey]))
+  const cornice = useDisposable(useMemo(() => profileAlongX(corniceProfile(H), span0, span1), [H, span0, span1]))
 
   return (
     <group>
@@ -278,7 +332,7 @@ export function WallFace({ room, wall, daytime, detail }: { room: Room; wall: Wa
       {radiators.map((r) => <Radiator key={r.id} radiator={r} />)}
       {doors.map((d) => <Doorway key={d.id} room={room} door={d} daytime={daytime} />)}
       {closets.map((c) => <Closet key={c.id} room={room} closet={c} detail={detail} />)}
-      {(wall === 'left' || wall === 'right') && <Stars room={room} side={wall} />}
+      {(wall === 'left' || wall === 'right') && <Stars room={room} side={wall} span={[span0, span1]} />}
     </group>
   )
 }
@@ -600,7 +654,7 @@ export function Doorway({ room, door: d, daytime }: { room: Room; door: Door; da
 }
 
 /** Little wall stars like the ones in the photo: subtle painted decals on the side walls. */
-export function Stars({ room, side }: { room: Room; side: 'left' | 'right' }) {
+export function Stars({ room, side, span }: { room: Room; side: 'left' | 'right'; span: [number, number] }) {
   const ref = useRef<THREE.InstancedMesh>(null)
   const count = 26
   const H = cm(room.h)
@@ -615,7 +669,7 @@ export function Stars({ room, side }: { room: Room; side: 'left' | 'right' }) {
     const white = new THREE.Color('#ffffff'), wall = new THREE.Color(wallColor), c = new THREE.Color()
     for (let i = 0; i < count; i++) {
       const r = 0.022 + rnd() * 0.05
-      o.position.set(0.3 + rnd() * (cm(room.d) - 0.6), 0.7 + rnd() * Math.max(0.3, H - 1.0), 0.003)
+      o.position.set(span[0] + 0.3 + rnd() * (span[1] - span[0] - 0.6), 0.7 + rnd() * Math.max(0.3, H - 1.0), 0.003)
       o.rotation.set(0, 0, rnd() * Math.PI)
       o.scale.set(r, r, 1)
       o.updateMatrix()
@@ -626,6 +680,6 @@ export function Stars({ room, side }: { room: Room; side: 'left' | 'right' }) {
     }
     m.instanceMatrix.needsUpdate = true
     if (m.instanceColor) m.instanceColor.needsUpdate = true
-  }, [room.d, H, side, wallColor])
+  }, [span[0], span[1], H, side, wallColor])
   return <instancedMesh ref={ref} args={[geo, mat, count]} />
 }

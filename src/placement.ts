@@ -1,4 +1,4 @@
-import { accessAllows, accessZones, closetClearance, doorSwing, footprint, intersects, isRugKind, polygonIntersectsRect, polygonOf, rectOf, wallLength, wallStripRect, type Polygon } from './geometry'
+import { accessAllows, accessZones, closetClearance, doorSwing, isCorner, rectInRoom, wallStripPolygon, footprint, intersects, isRugKind, polygonIntersectsRect, polygonOf, rectOf, wallLength, wallStripRect, type Polygon } from './geometry'
 export { isRugKind }
 import type { Door, Item, ItemKind, Rect, Room, Rot, Wall } from './types'
 
@@ -64,7 +64,7 @@ export function findFreeSpot(room: Room, items: Item[], w: number, d: number, op
   const solidItems = items.filter((i) => i.inRoom && !isRugKind(i.kind))
   const zones = isRugKind(probe.kind) ? [] : accessStrips(solidItems, probe)
 
-  const insideRoom = (rect: Rect) => rect.x0 >= -0.01 && rect.y0 >= -0.01 && rect.x1 <= room.w + 0.01 && rect.y1 <= room.d + 0.01
+  const insideRoom = (rect: Rect) => rectInRoom(room, rect)
   const onNothing = (rect: Rect) => insideRoom(rect) && !solid.some((s) => polygonIntersectsRect(s, rect))
   /** off everyone else's access space, and with its own drawers, doors or chair facing open floor */
   const accessOk = (rect: Rect, spot: Spot) => {
@@ -191,7 +191,10 @@ function doorBlocks(room: Room, rect: Rect): boolean {
 function doorBlocksOne(room: Room, door: Door, rect: Rect): boolean {
   if (door.swing === 'out') {
     // the leaf swings away from the room; just keep the doorway itself clear
-    return intersects(rect, wallStripRect(room, door.wall, door.offset, door.width, Math.min(60, door.width)))
+    const depth = Math.min(60, door.width)
+    return isCorner(door.wall)
+      ? polygonIntersectsRect(wallStripPolygon(room, door.wall, door.offset, door.width, depth), rect)
+      : intersects(rect, wallStripRect(room, door.wall, door.offset, door.width, depth))
   }
   const { hx, hy, r, leafDir } = doorSwing(room, door)
   // the quarter disc lies inside the r-square around the hinge
