@@ -1,0 +1,63 @@
+/* Edit walls: draw the room's shape, then set lengths and angles (WallEditor.tsx) */
+
+.walls-row { align-items: center; gap: 10px; }
+
+.walls-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(47, 42, 38, 0.42); display: grid; place-items: center; padding: 20px; }
+.walls-dialog { width: min(1000px, 100%); max-height: 100%; background: var(--panel); border-radius: var(--radius); box-shadow: 0 18px 60px rgba(40, 25, 20, 0.28); display: flex; flex-direction: column; overflow: hidden; }
+.walls-head { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.walls-head h3 { font-size: 16px; font-weight: 900; margin: 0; }
+.walls-head .icon { margin-left: auto; }
+.walls-tabs { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: #f1ece6; }
+.walls-tabs button { padding: 5px 12px; border-radius: 999px; font-weight: 800; font-size: 11.5px; color: var(--muted); }
+.walls-tabs button:hover { color: var(--ink); }
+.walls-tabs button.on { background: #2f2a26; color: #fff; }
+.walls-foot { display: flex; align-items: center; gap: 16px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.walls-foot p { margin: 0; flex: 1; }
+.walls-actions { display: flex; gap: 8px; }
+.walls-error { color: var(--bad); font-weight: 700; font-size: 12px; margin: 6px 0 0; }
+
+/* draw */
+.walls-draw { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 16px; padding: 16px 18px; min-height: 0; overflow: auto; }
+.walls-grid { width: 100%; height: auto; background: #fbf7f2; border-radius: 10px; cursor: crosshair; touch-action: none; user-select: none; }
+.walls-grid line { stroke: #ece4da; stroke-width: 1; }
+.walls-grid line.major { stroke: #dcd2c6; }
+.walls-grid .ghost { fill: none; stroke: #cfc5ba; stroke-width: 1.5; stroke-dasharray: 5 4; }
+.walls-grid .drawn { fill: none; stroke: #3f3833; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+.walls-grid .rubber { stroke: var(--pink); stroke-width: 2; stroke-dasharray: 6 4; }
+.walls-grid .corner { fill: #3f3833; }
+.walls-grid .first { fill: var(--pink); stroke: #fff; stroke-width: 2; }
+.walls-grid .hover { fill: var(--pink); opacity: 0.6; pointer-events: none; }
+.walls-grid .len { font-size: 11px; font-weight: 800; fill: #5c534b; text-anchor: middle; paint-order: stroke; stroke: #fbf7f2; stroke-width: 3px; pointer-events: none; }
+.walls-draw-side { display: flex; flex-direction: column; gap: 10px; }
+.walls-draw-side p { margin: 0; }
+
+/* measure */
+.walls-body { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 16px; padding: 16px 18px; min-height: 0; overflow: hidden; }
+.walls-measure { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; padding-right: 4px; max-height: min(560px, calc(100vh - 220px)); }
+.walls-count { display: flex; gap: 12px; }
+.walls-count label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; font-weight: 800; color: var(--muted); }
+.walls-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.wall-row, .corner-row { display: grid; grid-template-columns: 26px 1fr 170px; align-items: center; gap: 8px; }
+.wall-row { padding: 5px 0; }
+.wall-row .wall-num { width: 22px; height: 22px; border-radius: 50%; background: #2f2a26; color: #fff; font-weight: 900; font-size: 11px; display: grid; place-items: center; }
+.wall-row.auto .wall-num { background: var(--pink); }
+.wall-row .wall-name { font-weight: 800; }
+.corner-row { padding: 2px 0 6px; border-bottom: 1px dashed var(--line); }
+.corner-row .corner-label { grid-column: 2; font-size: 11px; color: var(--muted); font-weight: 700; }
+.corner-row > :last-child { grid-column: 3; }
+.wall-auto { font-weight: 800; color: var(--ink); }
+.wall-auto em { font-style: normal; font-size: 10px; font-weight: 800; color: var(--pink); text-transform: uppercase; letter-spacing: 0.08em; margin-left: 4px; }
+.angle-field { display: flex; gap: 4px; }
+.angle-field select { flex: 1; min-width: 0; }
+.angle-num { width: 58px; }
+
+.walls-preview { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.walls-preview svg { width: 100%; height: auto; background: #fbf7f2; border-radius: 10px; }
+.walls-preview.empty { justify-content: center; background: #fbf7f2; border-radius: 10px; min-height: 300px; }
+.walls-preview .shape { fill: #fff; }
+.walls-preview .wall { stroke: #3f3833; stroke-width: 4; stroke-linecap: round; }
+.walls-preview .wall.auto { stroke: var(--pink); stroke-dasharray: 8 5; }
+.walls-preview .num { font-size: 11px; font-weight: 900; fill: #2f2a26; text-anchor: middle; }
+.walls-preview .len { font-size: 9px; font-weight: 700; fill: var(--muted); text-anchor: middle; }
+.walls-preview .ang { font-size: 9px; font-weight: 800; fill: var(--pink); text-anchor: middle; paint-order: stroke; stroke: #fbf7f2; stroke-width: 3px; }
+.walls-preview .dot { fill: #3f3833; }

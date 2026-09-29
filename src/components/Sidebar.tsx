@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AnyWall, Corner, CornerCut, Door, ItemKind, Opening, Radiator, Wall } from '../types'
+import type { Door, ItemKind, Opening, Radiator, Wall } from '../types'
 import { runChecks } from '../checks'
 import { presetLayouts } from '../data'
 import { catalog, categories } from '../catalog'
-import { CORNERS, cornerWalls, cutCorners, footprint, rectOf, roomWalls } from '../geometry'
+import { footprint, rectOf } from '../geometry'
+import { WallEditor } from './WallEditor'
+import { WallSelect } from './WallSelect'
 import { findFreeSpot, isRugKind } from '../placement'
 import { park, useStore, type NewItemSpec } from '../store'
 import { ClosetRows } from './ClosetRows'
@@ -323,70 +325,6 @@ function OpeningHead({ label, onRemove }: { label: string; onRemove: () => void 
   )
 }
 
-const CORNER_LABEL: Record<Corner, string> = {
-  backLeft: 'Back-left corner',
-  backRight: 'Back-right corner',
-  frontLeft: 'Front-left corner',
-  frontRight: 'Front-right corner',
-}
-
-/** The four walls, plus (for windows and doors) the angled wall across each cut-off corner. */
-function WallSelect<W extends AnyWall>({ value, onChange, corners = false }: { value: W; onChange: (w: W) => void; corners?: boolean }) {
-  const room = useStore((s) => s.room)
-  const angled = corners ? cutCorners(room) : []
-  return (
-    <label>
-      Wall
-      <select value={value} onChange={(e) => onChange(e.target.value as W)}>
-        {WALLS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
-        {angled.map((c) => <option key={c} value={c}>{`Angled wall, ${CORNER_LABEL[c].toLowerCase()}`}</option>)}
-      </select>
-    </label>
-  )
-}
-
-/**
- * The room's corners: square, or cut off by an angled wall (legs measured along the back or front
- * wall and along the side wall; equal legs make 45°). Each cut adds a wall, up to eight.
- */
-function CornerRows() {
-  const room = useStore((s) => s.room)
-  const setRoom = useStore((s) => s.setRoom)
-  const unit = useUnits((s) => s.unit)
-  const setCut = (c: Corner, cut: CornerCut | null) => {
-    const next = { ...room.corners }
-    if (cut) next[c] = cut
-    else delete next[c]
-    setRoom({ corners: next })
-  }
-  return (
-    <>
-      {CORNERS.map((c) => {
-        const cut = room.corners?.[c]
-        const { across, side } = cornerWalls(c)
-        return (
-          <div key={c}>
-            <h5 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              {CORNER_LABEL[c]}
-              <select value={cut ? 'angled' : 'square'} onChange={(e) => setCut(c, e.target.value === 'angled' ? { x: 60, y: 60 } : null)} aria-label={`${CORNER_LABEL[c]} shape`}>
-                <option value="square">Square</option>
-                <option value="angled">Angled wall</option>
-              </select>
-            </h5>
-            {cut && (
-              <div className="dims-grid">
-                <label>{`Along ${across === 'top' ? 'back' : 'front'} wall`}<LengthInput value={cut.x} min={10} max={600} onCommit={(x) => setCut(c, { ...cut, x })} /></label>
-                <label>{`Along ${side} wall`}<LengthInput value={cut.y} min={10} max={600} onCommit={(y) => setCut(c, { ...cut, y })} /></label>
-                <label>Angled wall<span className="muted small" style={{ padding: '6px 0' }}>{formatLength(Math.hypot(cut.x, cut.y), { unit })}{Math.abs(cut.x - cut.y) < 1 ? ' at 45°' : ''}</span></label>
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </>
-  )
-}
-
 function WindowRows() {
   const windows = useStore((s) => s.room.windows)
   const updateOpening = useStore((s) => s.updateOpening)
@@ -399,7 +337,7 @@ function WindowRows() {
           <div key={w.id}>
             <OpeningHead label={windows.length > 1 ? `Window ${i + 1}` : 'Window'} onRemove={() => removeOpening('window', w.id)} />
             <div className="dims-grid four">
-              <WallSelect corners value={w.wall} onChange={(wall) => patch({ wall })} />
+              <WallSelect value={w.wall} onChange={(wall) => patch({ wall })} />
               <label>From corner<LengthInput value={w.offset} min={0} max={1200} onCommit={(offset) => patch({ offset })} /></label>
               <label>Width<LengthInput value={w.width} min={30} max={1200} onCommit={(width) => patch({ width })} /></label>
               <label>Height<LengthInput value={w.height} min={30} max={400} onCommit={(height) => patch({ height })} /></label>
@@ -424,7 +362,7 @@ function DoorRows() {
           <div key={d.id}>
             <OpeningHead label={doors.length > 1 ? `Door ${i + 1}` : 'Door'} onRemove={() => removeOpening('door', d.id)} />
             <div className="dims-grid four">
-              <WallSelect corners value={d.wall} onChange={(wall) => patch({ wall })} />
+              <WallSelect value={d.wall} onChange={(wall) => patch({ wall })} />
               <label>From corner<LengthInput value={d.offset} min={0} max={1200} onCommit={(offset) => patch({ offset })} /></label>
               <label>Width<LengthInput value={d.width} min={30} max={400} onCommit={(width) => patch({ width })} /></label>
               <label>Height<LengthInput value={d.height} min={150} max={400} onCommit={(height) => patch({ height })} /></label>
@@ -468,6 +406,7 @@ function RoomCard() {
   const addOpening = useStore((s) => s.addOpening)
   const unit = useUnits((s) => s.unit)
   const closets = room.closets?.length ?? 0
+  const [editingWalls, setEditingWalls] = useState(false)
   const summary = `${formatRoomSize(room.w, room.d, { unit })} · ceiling ${formatLength(room.h, { unit, feet: true })}`
   return (
     <Card id="room" title="Room" defaultOpen={false} extra={<span title={`${formatRoomSize(room.w, room.d, { unit })}, ceiling height ${formatLength(room.h, { unit, feet: true })}`}>{summary}</span>}>
@@ -478,17 +417,26 @@ function RoomCard() {
           <div className="row">
             <input className="text" value={room.subtitle} onChange={(e) => setRoom({ subtitle: e.target.value })} placeholder="Subtitle, e.g. New bed 140 × 200" />
           </div>
-          <div className="dims-grid">
-            <label>Width<LengthInput value={room.w} min={150} max={1200} onCommit={(w) => setRoom({ w })} /></label>
-            <label>Depth<LengthInput value={room.d} min={150} max={1200} onCommit={(d) => setRoom({ d })} /></label>
-            <label>Ceiling height<LengthInput value={room.h} min={200} max={400} onCommit={(h) => setRoom({ h })} /></label>
+          {room.outline ? (
+            <div className="dims-grid">
+              <label>Size<span className="muted small" style={{ padding: '6px 0' }}>{formatRoomSize(room.w, room.d, { unit })} overall</span></label>
+              <label>Ceiling height<LengthInput value={room.h} min={200} max={400} onCommit={(h) => setRoom({ h })} /></label>
+            </div>
+          ) : (
+            <div className="dims-grid">
+              <label>Width<LengthInput value={room.w} min={150} max={1200} onCommit={(w) => setRoom({ w })} /></label>
+              <label>Depth<LengthInput value={room.d} min={150} max={1200} onCommit={(d) => setRoom({ d })} /></label>
+              <label>Ceiling height<LengthInput value={room.h} min={200} max={400} onCommit={(h) => setRoom({ h })} /></label>
+            </div>
+          )}
+          <div className="row walls-row">
+            <button className="chip solid" onClick={() => setEditingWalls(true)}>Edit walls</button>
+            <span className="muted small">{room.outline ? `${room.outline.length} walls, drawn` : '4 walls, a plain rectangle'}</span>
           </div>
-          <p className="muted small">Width runs left to right on the plan, depth from the back wall to the front wall. Ceiling height sets the walls in 3D.</p>
-
-          <Section id="room.corners" title={`Corners (${roomWalls(room).length} walls)`}>
-            <CornerRows />
-            <p className="muted small">An angled corner cuts the corner off with a short wall of its own; windows and doors can go on it. Equal lengths along both walls make a 45° wall.</p>
-          </Section>
+          <p className="muted small">{room.outline
+            ? 'Walls are numbered clockwise from the corner you started drawing at; the plan shows each number and length. Ceiling height sets the walls in 3D.'
+            : 'Width runs left to right on the plan, depth from the back wall to the front wall. Ceiling height sets the walls in 3D. For any other shape, draw it with Edit walls.'}</p>
+          {editingWalls && <WallEditor onClose={() => setEditingWalls(false)} />}
 
           <Section id="room.windows" title={`Windows (${room.windows.length})`}>
             {room.windows.length === 0 && <p className="muted small">No windows.</p>}
@@ -500,7 +448,7 @@ function RoomCard() {
             {room.doors.length === 0 && <p className="muted small">No doors.</p>}
             <DoorRows />
             <div className="row"><button className="chip ghost" onClick={() => addOpening('door')}>+ Add door</button></div>
-            <p className="muted small">"From corner" is measured from the left end of a back or front wall, from the back end of a side wall, or from the left end of an angled wall. "Near corner" puts the hinge at that end.</p>
+            <p className="muted small">"From corner" is measured from the left end of a back or front wall, from the back end of a side wall, or, in a drawn room, from the corner where the wall starts going clockwise. "Near corner" puts the hinge at that end.</p>
           </Section>
 
           <Section id="room.radiators" title={`Radiators (${room.radiators.length})`}>

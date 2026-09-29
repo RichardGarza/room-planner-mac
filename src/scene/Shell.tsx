@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { CLOSET_HEIGHT, cornerWalls, isCorner, roomPolygon, roomWalls, wallFrame, wallLength, wallSpan } from '../geometry'
+import { CLOSET_HEIGHT, roomPolygon, roomWalls, wallFacing, wallFrame, wallLength, wallSpan } from '../geometry'
 import { useStore } from '../store'
 import type { AnyWall, Door, Opening, Radiator as RadiatorSpec, Room } from '../types'
 import { Closet } from './Closet'
@@ -36,31 +36,23 @@ export function wallTransform(room: Room, wall: AnyWall): { position: [number, n
 }
 
 /**
- * How far each end of a wall's box reaches past its span so the outside corners close: the full
- * wall thickness at a square corner, WALL_T · tan(turn / 2) where it meets an angled wall.
+ * How far each end of a wall's box reaches past the corner so the outside corners close: at an
+ * outside corner the mitre, WALL_T · tan(turn / 2) (WALL_T at a square one, capped for very sharp
+ * ones); at an inside corner nothing, the neighbour's box already covers it.
  */
 function wallEnds(room: Room, wall: AnyWall): [number, number] {
   const walls = roomWalls(room)
+  const n = walls.length
   const i = walls.indexOf(wall)
-  const dirOf = (w: AnyWall) => wallFrame(room, w).along
-  // the angle the wall line turns through at the joint: 90° at a square corner, 45° into a 45° cut
-  const turn = (a: AnyWall, b: AnyWall) => {
-    const u = dirOf(a), v = dirOf(b)
-    return Math.acos(Math.min(1, Math.abs(u[0] * v[0] + u[1] * v[1])))
+  const ext = (a: AnyWall, b: AnyWall) => {
+    // a runs into b; going round clockwise, a right turn is an outside corner
+    const u = wallFrame(room, a).along, v = wallFrame(room, b).along
+    const cross = u[0] * v[1] - u[1] * v[0]
+    const turn = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1])))
+    if (cross < -1e-9) return 0
+    return Math.min(WALL_T * Math.tan(turn / 2), WALL_T * 4)
   }
-  // the two ends of the part of a wall that is there (a side shortened by the cuts at its corners)
-  const ends = (w: AnyWall): [[number, number], [number, number]] => {
-    const f = wallFrame(room, w)
-    const [s0, s1] = wallSpan(room, w)
-    return [[f.start[0] + f.along[0] * s0, f.start[1] + f.along[1] * s0], [f.start[0] + f.along[0] * s1, f.start[1] + f.along[1] * s1]]
-  }
-  const neighbours = [walls[(i + walls.length - 1) % walls.length], walls[(i + 1) % walls.length]]
-  const ext = (p: [number, number]) => {
-    const other = neighbours.find((w) => ends(w).some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1))
-    return other ? WALL_T * Math.tan(turn(wall, other) / 2) : WALL_T
-  }
-  const [startPt, endPt] = ends(wall)
-  return [ext(startPt), ext(endPt)]
+  return [ext(walls[(i + n - 1) % n], wall), ext(wall, walls[(i + 1) % n])]
 }
 
 export type Detail = 'best' | 'fast'
@@ -262,11 +254,10 @@ function Pendant({ position, daytime }: { position: [number, number, number]; da
 /** One wall in its local frame: solid plaster pieces around any openings, plus what hangs on it. */
 export function WallFace({ room, wall, daytime, detail }: { room: Room; wall: AnyWall; daytime: boolean; detail: Detail }) {
   const L = cm(wallLength(room, wall)), H = cm(room.h)
-  // the part of the wall that is there: a side stops where a cut corner starts
   const [span0, span1] = wallSpan(room, wall).map(cm)
   const [ext0, ext1] = wallEnds(room, wall)
-  // an angled wall takes the colour of the side wall it turns into
-  const color = room.wallColors[isCorner(wall) ? cornerWalls(wall).side : wall]
+  // a wall of a drawn outline takes the colour of the side it faces most
+  const color = room.wallColors[wallFacing(room, wall)]
   const windows = room.windows.filter((o) => o.wall === wall)
   const doors = room.doors.filter((o) => o.wall === wall)
   const radiators = room.radiators.filter((o) => o.wall === wall)

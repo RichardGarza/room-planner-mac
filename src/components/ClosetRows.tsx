@@ -1,13 +1,8 @@
 import { useStore } from '../store'
-import type { Closet, Wall } from '../types'
+import { wallLength } from '../geometry'
+import type { Closet } from '../types'
 import { LengthInput } from './LengthInput'
-
-const WALLS: { id: Wall; label: string }[] = [
-  { id: 'top', label: 'Back wall' },
-  { id: 'bottom', label: 'Front wall' },
-  { id: 'left', label: 'Left wall' },
-  { id: 'right', label: 'Right wall' },
-]
+import { WallSelect } from './WallSelect'
 
 const DOORS: { id: Closet['doors']; label: string }[] = [
   { id: 'none', label: 'No doors' },
@@ -34,7 +29,7 @@ export function ClosetRows() {
       {closets.map((c, i) => {
         const label = closets.length > 1 ? `Closet ${i + 1}` : 'Closet'
         const patch = (p: Partial<Closet>) => updateOpening('closet', c.id, p)
-        const wallLen = c.wall === 'top' || c.wall === 'bottom' ? room.w : room.d
+        const wallLen = wallLength(room, c.wall)
         return (
           <div key={c.id} className="closet-row">
             <h5 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -42,12 +37,7 @@ export function ClosetRows() {
               <button className="x" onClick={() => removeOpening('closet', c.id)} title={`Remove ${label.toLowerCase()}`} aria-label={`Remove ${label.toLowerCase()}`}>×</button>
             </h5>
             <div className="dims-grid four">
-              <label>
-                Wall
-                <select value={c.wall} onChange={(e) => patch({ wall: e.target.value as Wall })}>
-                  {WALLS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
-                </select>
-              </label>
+              <WallSelect value={c.wall} onChange={(wall) => patch({ wall })} />
               <label>From corner<LengthInput value={c.offset} min={0} max={wallLen} onCommit={(offset) => patch({ offset })} /></label>
               <label>Width<LengthInput value={c.width} min={40} max={wallLen} onCommit={(width) => patch({ width })} /></label>
               <label>Depth<LengthInput value={c.depth} min={30} max={120} onCommit={(depth) => patch({ depth })} /></label>

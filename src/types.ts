@@ -1,19 +1,11 @@
 export type Wall = 'top' | 'bottom' | 'left' | 'right'
-/** A corner of the room's rectangle. "back" is the top wall on the plan, "front" the bottom one. */
-export type Corner = 'backLeft' | 'backRight' | 'frontLeft' | 'frontRight'
 /**
- * Any wall of the room: the four sides of the rectangle, plus a wall across each corner that is
- * cut off (an angled wall). Windows and doors can sit on any of them.
+ * A wall of a room whose shape was drawn in the wall editor: "e0" runs from outline point 0 to
+ * point 1, "e1" from point 1 to point 2, and so on round the room clockwise.
  */
-export type AnyWall = Wall | Corner
-/**
- * A cut-off corner: a straight wall from `x` cm along the back or front wall to `y` cm along the
- * side wall. Equal legs make a 45° wall.
- */
-export interface CornerCut {
-  x: number
-  y: number
-}
+export type EdgeWall = `e${number}`
+/** Any wall: the four sides of a plain rectangular room, or a wall of a drawn outline. */
+export type AnyWall = Wall | EdgeWall
 /** Rotation on the plan in degrees, clockwise, normalised to [0, 360). 0 / 90 / 180 / 270 are the axis-aligned cases. */
 export type Rot = number
 export type ItemKind =
@@ -56,7 +48,7 @@ export interface Item {
 
 export interface Opening {
   id: string
-  /** a window or door may sit on an angled corner wall; offset then runs along that wall */
+  /** in a drawn room, a wall of the outline; the offset runs along it from its start */
   wall: AnyWall
   /** distance along the wall from its left/top end to the opening's start */
   offset: number
@@ -75,7 +67,7 @@ export interface Door extends Opening {
 
 export interface Radiator {
   id: string
-  wall: Wall
+  wall: AnyWall
   offset: number
   width: number
   depth: number
@@ -87,7 +79,7 @@ export type ClosetDoors = 'none' | 'hinged' | 'bifold' | 'sliding'
 /** A recess in a wall behind an opening. Its front (the doors) sits on the wall line; the recess lies outside the room. */
 export interface Closet {
   id: string
-  wall: Wall
+  wall: AnyWall
   /** distance along the wall from its left/top end to the opening's start */
   offset: number
   width: number
@@ -109,8 +101,11 @@ export interface Room {
   radiators: Radiator[]
   closets: Closet[]
   wallColors: { left: string; right: string; top: string; bottom: string }
-  /** cut-off corners; each adds an angled wall, so a room has 4 to 8 walls */
-  corners?: Partial<Record<Corner, CornerCut>>
+  /**
+   * The floor outline when the room is not a plain rectangle: 3 to 20 points in cm, clockwise on
+   * the plan, the box around them from (0, 0) to (w, d). Wall "e<i>" runs from point i to i + 1.
+   */
+  outline?: [number, number][]
   floorColor: string
 }
 

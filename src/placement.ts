@@ -1,4 +1,4 @@
-import { accessAllows, accessZones, closetClearance, doorSwing, isCorner, rectInRoom, wallStripPolygon, footprint, intersects, isRugKind, polygonIntersectsRect, polygonOf, rectOf, wallLength, wallStripRect, type Polygon } from './geometry'
+import { accessAllows, accessZones, closetClearance, doorSwing, isSide, rectInRoom, wallStripPolygon, footprint, intersects, isRugKind, polygonIntersectsRect, polygonOf, rectOf, wallLength, wallStripRect, type Polygon } from './geometry'
 export { isRugKind }
 import type { Door, Item, ItemKind, Rect, Room, Rot, Wall } from './types'
 
@@ -192,7 +192,7 @@ function doorBlocksOne(room: Room, door: Door, rect: Rect): boolean {
   if (door.swing === 'out') {
     // the leaf swings away from the room; just keep the doorway itself clear
     const depth = Math.min(60, door.width)
-    return isCorner(door.wall)
+    return !isSide(door.wall)
       ? polygonIntersectsRect(wallStripPolygon(room, door.wall, door.offset, door.width, depth), rect)
       : intersects(rect, wallStripRect(room, door.wall, door.offset, door.width, depth))
   }

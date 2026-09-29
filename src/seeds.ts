@@ -105,13 +105,15 @@ export function forestsRoom(): RoomDoc {
  * Bedroom 2 — 11 × 11 ft with an 8 ft ceiling, sizes in inches:
  * window 66 wide, 24 tall, sill 58; two doors, both 32 wide; a closet.
  * Bed 67 × 85 × 24, desk 81 × 34 × 27, dresser 14½ × 19 × 46, side table 16 × 23 × 24.
- * Door 1 sits in the front-right corner on a 45° angled wall (28 in along each wall, about 40 in
- * across). Door 2 is at the right end of the back wall, the closet (60 wide, 24 deep, sliding) at
- * the back end of the right wall, where the room's owner put them.
+ * A drawn room with five walls: the square with its front-right corner cut off by a 45° wall
+ * (28 in along each side, about 40 in across), where door 1 is. Door 2 is at the right end of the
+ * back wall and the closet (60 wide, 24 deep, sliding) at the back end of the right wall, where
+ * the room's owner put them. Walls go round clockwise from the back wall: 1 back, 2 right,
+ * 3 the angled wall, 4 front (measured from its right end), 5 left.
  * The bed, side table and dresser stand where the layout suggestions put them. The 81 in desk
  * blocks a door or a clearance wherever it goes in this room, so it starts parked beside the plan.
  */
-const BEDROOM_2_SEED_TIME = '2026-09-29T21:00:00.000Z'
+const BEDROOM_2_SEED_TIME = '2026-09-29T23:00:00.000Z'
 
 export function bedroomTwo(): RoomDoc {
   const S = inch(132) // 335
@@ -125,17 +127,17 @@ export function bedroomTwo(): RoomDoc {
     w: S,
     d: S,
     h: inch(96),
-    windows: [{ id: 'w1', wall: 'top', offset: Math.round((S - winW) / 2), width: winW, height: inch(24), sill: inch(58) }],
+    outline: [[0, 0], [S, 0], [S, S - cut], [S - cut, S], [0, S]],
+    windows: [{ id: 'w1', wall: 'e0', offset: Math.round((S - winW) / 2), width: winW, height: inch(24), sill: inch(58) }],
     doors: [
-      // centred on the angled wall; "left" is its end on the front wall
-      { id: 'd1', wall: 'frontRight', offset: Math.round((angled - doorW) / 2), width: doorW, height: inch(80), sill: 0, hinge: 'left', swing: 'in' },
-      { id: 'd2', wall: 'top', offset: S - doorW - 5, width: doorW, height: inch(80), sill: 0, hinge: 'right', swing: 'in' },
+      // centred on the angled wall, hinged at its end on the right wall
+      { id: 'd1', wall: 'e2', offset: Math.round((angled - doorW) / 2), width: doorW, height: inch(80), sill: 0, hinge: 'left', swing: 'in' },
+      { id: 'd2', wall: 'e0', offset: S - doorW - 2, width: doorW, height: inch(80), sill: 0, hinge: 'right', swing: 'in' },
     ],
     radiators: [],
-    closets: [{ id: 'c1', wall: 'right', offset: 5, width: inch(60), depth: inch(24), doors: 'sliding' }],
+    closets: [{ id: 'c1', wall: 'e1', offset: 5, width: inch(60), depth: inch(24), doors: 'sliding' }],
     wallColors: { left: '#e4e1da', right: '#e4e1da', top: '#f2efe9', bottom: '#f2efe9' },
     floorColor: '#a47e5c',
-    corners: { frontRight: { x: cut, y: cut } },
   }
 
   const piece = (id: string, name: string, kind: Item['kind'], wIn: number, dIn: number, hIn: number, x: number, y: number, rot: Item['rot'], color: string, extra: Partial<Item> = {}): Item => ({

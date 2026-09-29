@@ -1,6 +1,7 @@
 import { defaultRoom } from './data'
-import { CORNERS, cornerWalls, isCorner } from './geometry'
-import type { AnyWall, Closet, Corner, CornerCut, Door, Item, ItemKind, ItemPlacement, Layout, Opening, Radiator, Room, RoomDoc, Rot, Wall } from './types'
+import { edgeWall, wallPoint } from './geometry'
+import { normalizeOutline, placeByPoints } from './outline'
+import type { AnyWall, Closet, Door, Item, ItemKind, ItemPlacement, Layout, Opening, Radiator, Room, RoomDoc, Rot, Wall } from './types'
 
 export const DOC_VERSION = 2
 
@@ -19,19 +20,11 @@ export function nextOpeningId(prefix: string, existing: { id: string }[]): strin
 }
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
-const wallOf = (v: unknown, fallback: Wall): Wall => (WALLS.includes(v as Wall) ? (v as Wall) : fallback)
-const anyWallOf = (v: unknown, fallback: AnyWall): AnyWall => (WALLS.includes(v as Wall) || CORNERS.includes(v as Corner) ? (v as AnyWall) : fallback)
-
-/** Cut corners with two positive legs; anything else is dropped (the corner stays square). */
-function fixCorners(raw: unknown): Room['corners'] {
-  if (!raw || typeof raw !== 'object') return undefined
-  const out: NonNullable<Room['corners']> = {}
-  for (const c of CORNERS) {
-    const v = (raw as Record<string, unknown>)[c] as Partial<CornerCut> | undefined
-    if (v && typeof v === 'object' && num(v.x, 0) > 0 && num(v.y, 0) > 0) out[c] = { x: num(v.x, 0), y: num(v.y, 0) }
-  }
-  return Object.keys(out).length ? out : undefined
-}
+/** A side, an outline wall ("e3"), or one of the old angled-corner walls (converted in withShape). */
+const LEGACY_CORNERS = ['backLeft', 'backRight', 'frontLeft', 'frontRight'] as const
+type LegacyCorner = (typeof LEGACY_CORNERS)[number]
+const anyWallOf = (v: unknown, fallback: AnyWall): AnyWall =>
+  typeof v === 'string' && (WALLS.includes(v as Wall) || /^e\d{1,2}$/.test(v) || LEGACY_CORNERS.includes(v as LegacyCorner)) ? (v as AnyWall) : fallback
 const idOf = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null)
 
 type Unkeyed<T> = Omit<T, 'id'> & { id: string | null }
@@ -62,7 +55,7 @@ function fixRadiator(raw: unknown, base: Radiator): Unkeyed<Radiator> {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<Radiator>
   return {
     id: idOf(o.id),
-    wall: wallOf(o.wall, base.wall),
+    wall: anyWallOf(o.wall, base.wall),
     offset: num(o.offset, base.offset),
     width: num(o.width, base.width),
     depth: num(o.depth, base.depth),
@@ -76,7 +69,7 @@ function fixCloset(raw: unknown, base: Closet): Unkeyed<Closet> {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Partial<Closet>
   const closet: Unkeyed<Closet> = {
     id: idOf(o.id),
-    wall: wallOf(o.wall, base.wall),
+    wall: anyWallOf(o.wall, base.wall),
     offset: num(o.offset, base.offset),
     width: num(o.width, base.width),
     depth: num(o.depth, base.depth),
@@ -128,25 +121,108 @@ export function migrateRoom(raw: unknown): Room {
   const closets = withIds(closetRaw.map((o) => fixCloset(o, baseCloset)), 'c').filter((o) => o.width > 0)
 
   const colors = (r.wallColors && typeof r.wallColors === 'object' ? r.wallColors : {}) as Partial<Room['wallColors']>
-  const corners = fixCorners(r.corners)
-  // a window or door on a corner that is not cut off moves to that corner's back or front wall
-  const onRealWall = <T extends Opening>(o: T): T => (isCorner(o.wall) && !corners?.[o.wall] ? { ...o, wall: cornerWalls(o.wall).across } : o)
-  return {
+  const room: Room = {
     name: typeof r.name === 'string' ? r.name : defaultRoom.name,
     subtitle: typeof r.subtitle === 'string' ? r.subtitle : defaultRoom.subtitle,
     w: num(r.w, defaultRoom.w),
     d: num(r.d, defaultRoom.d),
     h: num(r.h, defaultRoom.h),
-    windows: windows.map(onRealWall),
-    doors: doors.map(onRealWall),
+    windows,
+    doors,
     radiators,
     closets,
     wallColors: { ...defaultRoom.wallColors, ...colors },
-    ...(corners ? { corners } : {}),
     floorColor: typeof r.floorColor === 'string' ? r.floorColor : defaultRoom.floorColor,
   }
+  return withShape(room, r.outline, r.corners)
 }
 
+/** Points of a saved outline, or null when it is not a usable shape. */
+function savedOutline(raw: unknown): [number, number][] | null {
+  if (!Array.isArray(raw)) return null
+  const pts = raw.filter((p): p is [number, number] => Array.isArray(p) && p.length === 2 && p.every((v) => typeof v === 'number' && Number.isFinite(v)))
+  if (pts.length !== raw.length) return null
+  const out = normalizeOutline(pts.map(([x, y]): [number, number] => [x, y]))
+  return 'error' in out ? null : out.points
+}
+
+/** Angled corners saved by the version before drawn outlines: legs in cm, each at most half its wall. */
+function legacyCuts(raw: unknown, W: number, D: number): Partial<Record<LegacyCorner, { x: number; y: number }>> {
+  const out: Partial<Record<LegacyCorner, { x: number; y: number }>> = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const c of LEGACY_CORNERS) {
+    const v = (raw as Record<string, unknown>)[c] as { x?: unknown; y?: unknown } | undefined
+    const x = Math.min(num(v?.x, 0), W / 2), y = Math.min(num(v?.y, 0), D / 2)
+    if (x >= 10 && y >= 10) out[c] = { x, y }
+  }
+  return out
+}
+
+const isLegacy = (wall: string): boolean => LEGACY_CORNERS.includes(wall as LegacyCorner)
+const isEdgeId = (wall: string) => /^e\d+$/.test(wall)
+
+/**
+ * The room's shape: a saved outline; or the angled corners the version before drawn outlines cut
+ * off the rectangle, turned into an outline here; or the plain rectangle. On an outline every
+ * opening ends up on a wall "e<i>", at the same spot on the plan as before.
+ */
+function withShape(room: Room, rawOutline: unknown, rawCorners: unknown): Room {
+  const W = room.w, D = room.d
+  const saved = savedOutline(rawOutline)
+  const cuts = saved ? {} : legacyCuts(rawCorners, W, D)
+  let outline = saved
+  if (!outline && Object.keys(cuts).length) {
+    const bl = cuts.backLeft, br = cuts.backRight, fr = cuts.frontRight, fl = cuts.frontLeft
+    const pts: [number, number][] = []
+    if (bl) pts.push([0, bl.y], [bl.x, 0]); else pts.push([0, 0])
+    if (br) pts.push([W - br.x, 0], [W, br.y]); else pts.push([W, 0])
+    if (fr) pts.push([W, D - fr.y], [W - fr.x, D]); else pts.push([W, D])
+    if (fl) pts.push([fl.x, D], [0, D - fl.y]); else pts.push([0, D])
+    outline = pts
+  }
+  const all = [...room.windows, ...room.doors, ...room.radiators, ...(room.closets ?? [])]
+  if (!outline) {
+    // a plain room: an opening left on a corner that is square again moves to that corner's back or
+    // front wall, and one on an outline wall (the outline was lost) to the back wall
+    if (!all.some((o) => isLegacy(o.wall) || isEdgeId(o.wall))) return room
+    const fix = <T extends { wall: AnyWall }>(o: T): T => (isLegacy(o.wall) ? { ...o, wall: (o.wall as string).startsWith('back') ? 'top' : 'bottom' } : isEdgeId(o.wall) ? { ...o, wall: 'top' } : o)
+    return { ...room, windows: room.windows.map(fix), doors: room.doors.map(fix), radiators: room.radiators.map(fix), closets: (room.closets ?? []).map(fix) }
+  }
+  const shape = { w: Math.max(...outline.map((p) => p[0])), d: Math.max(...outline.map((p) => p[1])), outline }
+  /** an opening's end on the plan, in the frame it was saved in (the old rectangle and its corners) */
+  const point = (wall: AnyWall, t: number): [number, number] => {
+    if (isLegacy(wall)) {
+      const c = wall as string as LegacyCorner
+      const k = cuts[c] ?? { x: 10, y: 10 }
+      const back = c.startsWith('back'), left = c.endsWith('Left')
+      const onAcross: [number, number] = [left ? k.x : W - k.x, back ? 0 : D]
+      const onSide: [number, number] = [left ? 0 : W, back ? k.y : D - k.y]
+      // the old angled wall started at its end with the smaller x
+      const [a, b] = onAcross[0] < onSide[0] ? [onAcross, onSide] : [onSide, onAcross]
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+      return [a[0] + ((b[0] - a[0]) / len) * t, a[1] + ((b[1] - a[1]) / len) * t]
+    }
+    return wallPoint({ w: W, d: D }, wall, t)
+  }
+  const move = <T extends { wall: AnyWall; offset: number; width: number }>(o: T, flip: (o: T) => T = (x) => x): T => {
+    // already on a wall of the saved outline: it stays (sanitizeRoom keeps it on that wall)
+    if (isEdgeId(o.wall)) return { ...o, wall: edgeWall(Math.min(Number(o.wall.slice(1)), outline.length - 1)) }
+    const m = placeByPoints(shape, point(o.wall, o.offset), point(o.wall, o.offset + o.width))
+    if (!m) return { ...o, wall: edgeWall(0), offset: 0 }
+    const moved = { ...o, wall: m.wall, offset: Math.round(m.offset * 10) / 10 }
+    return m.flipped ? flip(moved) : moved
+  }
+  return {
+    ...room,
+    w: shape.w,
+    d: shape.d,
+    outline,
+    windows: room.windows.map((o) => move(o)),
+    doors: room.doors.map((o) => move(o, (x) => ({ ...x, hinge: x.hinge === 'left' ? 'right' : 'left' }))),
+    radiators: room.radiators.map((o) => move(o)),
+    closets: (room.closets ?? []).map((o) => move(o)),
+  }
+}
 /* ---------- items and layouts ---------- */
 
 const KINDS: ItemKind[] = ['bed', 'chair', 'desk', 'shelf', 'dresser', 'wardrobe', 'bookcase', 'rug', 'rugRect', 'nightstand', 'sofa', 'table', 'box']

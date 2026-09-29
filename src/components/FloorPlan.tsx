@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { closetClearance, closetRecessRect, doorSwing, footprint, frontRecessPad, isAxisAligned, isCorner, normalizeRot, rectOf, roomPolygon, wallAxes, wallPoint, wallSpan, wallStripRect } from '../geometry'
+import { closetClearanceDepth, doorSwing, edgeIndex, footprint, frontRecessPad, isAxisAligned, isSide, normalizeRot, rectOf, roomPolygon, roomWalls, wallAxes, wallLength, wallPoint, wallStripRect } from '../geometry'
 import { isRugKind } from '../placement'
 import { useStore } from '../store'
 import type { AnyWall, Closet, Door, Item, Room, Wall } from '../types'
@@ -62,7 +62,7 @@ export function FloorPlan() {
   const H = room.d + M * 2 + PARK_H + padB
   const wallsWithOpenings = new Set<AnyWall>([...room.windows, ...room.doors].map((o) => o.wall))
   const outline = roomPolygon(room).map((p) => p.join(',')).join(' ')
-  const spanL = wallSpan(room, 'left'), spanR = wallSpan(room, 'right')
+  const drawn = !!room.outline
 
   return (
     <svg
@@ -83,9 +83,9 @@ export function FloorPlan() {
         <clipPath id="plan-floor"><polygon points={outline} /></clipPath>
         {/* floor (a cut-off corner is not part of it) */}
         <polygon points={outline} fill="#fbf7f2" />
-        {/* wall tints */}
-        <rect x={-6} y={spanL[0]} width={6} height={spanL[1] - spanL[0]} fill={room.wallColors.left} />
-        <rect x={room.w} y={spanR[0]} width={6} height={spanR[1] - spanR[0]} fill={room.wallColors.right} />
+        {/* wall tints (a plain room's side walls) */}
+        {!drawn && <rect x={-6} y={0} width={6} height={room.d} fill={room.wallColors.left} />}
+        {!drawn && <rect x={room.w} y={0} width={6} height={room.d} fill={room.wallColors.right} />}
         {/* grid */}
         <g clipPath="url(#plan-floor)">
         {Array.from({ length: Math.floor(room.w / 50) }, (_, i) => (
@@ -151,10 +151,15 @@ export function FloorPlan() {
             dist={door.swing === 'out' ? door.width + 12 : undefined}
           />
         ))}
-        {(['top', 'bottom', 'left', 'right'] as const)
+        {/* a drawn room: every wall's number and length just inside it, as in the wall editor */}
+        {drawn && roomWalls(room).map((w) => (
+          <WallText key={`n-${w}`} room={room} wall={w} t={wallLength(room, w) / 2} dist={-12} className="plan-wallnum"
+            text={`${edgeIndex(w) + 1} · ${formatLength(wallLength(room, w), { unit, feet: true })}`} />
+        ))}
+        {!drawn && (['top', 'bottom', 'left', 'right'] as const)
           .filter((w) => !wallsWithOpenings.has(w))
           .map((w) => (
-            <WallText key={w} room={room} wall={w} t={(wallSpan(room, w)[0] + wallSpan(room, w)[1]) / 2} text={w === 'left' ? 'LEFT WALL' : w === 'right' ? 'RIGHT WALL' : w === 'top' ? 'BACK WALL' : 'FRONT WALL'} />
+            <WallText key={w} room={room} wall={w} t={wallLength(room, w) / 2} text={w === 'left' ? 'LEFT WALL' : w === 'right' ? 'RIGHT WALL' : w === 'top' ? 'BACK WALL' : 'FRONT WALL'} />
           ))}
         <text x={room.w} y={room.d + 16} className="plan-dim" textAnchor="end">{formatLength(room.w, { unit, feet: true })}</text>
         <text transform={`translate(${room.w + 16} 6) rotate(90)`} className="plan-dim">{formatLength(room.d, { unit, feet: true })}</text>
@@ -211,30 +216,27 @@ function arcPath(hx: number, hy: number, r: number, leafDir: (deg: number) => [n
  * and a faint dashed rect for the floor that must stay clear in front of it.
  */
 function ClosetPlan({ room, closet: c }: { room: Room; closet: Closet }) {
-  const { along, normal } = wallAxes(c.wall)
+  const { along, normal } = wallAxes(c.wall, room)
   const [x0, y0] = wallPoint(room, c.wall, c.offset)
-  const recess = closetRecessRect(room, c)
-  const clear = closetClearance(room, c)
+  const clearDepth = closetClearanceDepth(c)
   // local frame: origin at the opening's start on the wall line, u along the wall, v into the room
   const pt = (u: number, v: number): [number, number] => [x0 + along[0] * u + normal[0] * v, y0 + along[1] * u + normal[1] * v]
   const P = (u: number, v: number) => pt(u, v).join(' ')
   const w = c.width
   const half = w / 2
   const wallHalf = 3
-  const horizontal = c.wall === 'top' || c.wall === 'bottom'
-  // label towards the back of the recess so it stays clear of the wall's own label
+  // label towards the back of the recess so it stays clear of the wall's own label, turned with the wall
   const [lx, ly] = pt(half, -Math.max(c.depth * 0.7, c.depth - 14) - wallHalf)
-  const labelRot = horizontal ? 0 : c.wall === 'left' ? -90 : 90
-  const [gx, gy] = pt(0, -4)
+  const labelRot = readableAngle(along)
+  const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ')
   return (
     <g className="closet">
       {/* the recess beyond the wall (the wall stroke covers its inner edge) */}
-      <rect x={recess.x0} y={recess.y0} width={recess.x1 - recess.x0} height={recess.y1 - recess.y0} fill="#f6f1ea" stroke="#8f867d" strokeWidth={0.8}
-        transform={`translate(${-normal[0] * wallHalf} ${-normal[1] * wallHalf})`} />
+      <polygon points={poly([pt(0, -wallHalf), pt(w, -wallHalf), pt(w, -wallHalf - c.depth), pt(0, -wallHalf - c.depth)])} fill="#f6f1ea" stroke="#8f867d" strokeWidth={0.8} />
       {/* floor that stays free in front */}
-      <rect x={clear.rect.x0} y={clear.rect.y0} width={clear.rect.x1 - clear.rect.x0} height={clear.rect.y1 - clear.rect.y0} fill="#8f867d" fillOpacity={0.05} stroke="#c9bfb4" strokeWidth={0.8} strokeDasharray="3 3" />
+      <polygon points={poly([pt(0, 0), pt(w, 0), pt(w, clearDepth), pt(0, clearDepth)])} fill="#8f867d" fillOpacity={0.05} stroke="#c9bfb4" strokeWidth={0.8} strokeDasharray="3 3" />
       {/* the opening: a gap in the wall */}
-      <rect x={horizontal ? gx : Math.min(gx, gx + normal[0] * 8)} y={horizontal ? Math.min(gy, gy + normal[1] * 8) : gy} width={horizontal ? w : 8} height={horizontal ? 8 : w} fill="#f6f1ea" />
+      <polygon points={poly([pt(0, -4), pt(w, -4), pt(w, 4), pt(0, 4)])} fill="#f6f1ea" />
       <line x1={pt(0, -wallHalf)[0]} y1={pt(0, -wallHalf)[1]} x2={pt(0, wallHalf)[0]} y2={pt(0, wallHalf)[1]} stroke="#3f3833" strokeWidth={1.2} />
       <line x1={pt(w, -wallHalf)[0]} y1={pt(w, -wallHalf)[1]} x2={pt(w, wallHalf)[0]} y2={pt(w, wallHalf)[1]} stroke="#3f3833" strokeWidth={1.2} />
       {c.doors === 'hinged' && (
@@ -260,9 +262,15 @@ function ClosetPlan({ room, closet: c }: { room: Room; closet: Closet }) {
           <line x1={pt(half - 4, -1.6)[0]} y1={pt(half - 4, -1.6)[1]} x2={pt(w, -1.6)[0]} y2={pt(w, -1.6)[1]} stroke="#5c534b" strokeWidth={2} />
         </g>
       )}
-      <text transform={`translate(${lx} ${ly + (labelRot ? 0 : 2.5)}) rotate(${labelRot})`} className="plan-label" textAnchor="middle" dominantBaseline={labelRot ? 'middle' : undefined}>CLOSET</text>
+      <text transform={`translate(${lx} ${ly}) rotate(${labelRot})`} className="plan-label" textAnchor="middle" dominantBaseline="middle">CLOSET</text>
     </g>
   )
+}
+
+/** A wall's direction as a text angle that reads left to right (never upside down). */
+function readableAngle(along: [number, number]) {
+  const a = (Math.atan2(along[1], along[0]) * 180) / Math.PI
+  return a > 90 ? a - 180 : a <= -90 ? a + 180 : a
 }
 
 /** Sweep flag for a quarter arc from the wall direction round to the room normal. */
@@ -289,15 +297,14 @@ function Opening({ room, wall, offset, width, kind }: { room: Room; wall: AnyWal
   )
 }
 
-function WallText({ room, wall, t, text, dist = 14 }: { room: Room; wall: AnyWall; t: number; text: string; dist?: number }) {
+/** A label beside a wall, `dist` cm outside it (negative: inside), turned with the wall and kept the right way up. */
+function WallText({ room, wall, t, text, dist = 14, className = 'plan-label' }: { room: Room; wall: AnyWall; t: number; text: string; dist?: number; className?: string }) {
   const [x, y] = wallPoint(room, wall, t)
   const { along, normal } = wallAxes(wall, room)
   const ox = -normal[0] * dist, oy = -normal[1] * dist
-  // along an angled wall, turned with it and kept the right way up
-  const slant = (Math.atan2(along[1], along[0]) * 180) / Math.PI
-  const rot = wall === 'left' ? -90 : wall === 'right' ? 90 : isCorner(wall) ? (slant > 90 ? slant - 180 : slant < -90 ? slant + 180 : slant) : 0
+  const rot = wall === 'left' ? -90 : wall === 'right' ? 90 : isSide(wall) ? 0 : readableAngle(along)
   return (
-    <text transform={`translate(${x + ox} ${y + oy + (wall === 'top' ? 2 : wall === 'bottom' ? 4 : 0)}) rotate(${rot})`} className="plan-label" textAnchor="middle" dominantBaseline={rot ? 'middle' : undefined}>
+    <text transform={`translate(${x + ox} ${y + oy + (wall === 'top' ? 2 : wall === 'bottom' ? 4 : 0)}) rotate(${rot})`} className={className} textAnchor="middle" dominantBaseline={rot ? 'middle' : undefined}>
       {text}
     </text>
   )

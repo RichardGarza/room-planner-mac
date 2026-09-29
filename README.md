@@ -7,7 +7,7 @@ It runs in the browser and as a native Mac app. This repository is the Mac and w
 ## What it does
 
 - **Start screen.** The app opens with "Start a new room" and "Open an existing room". A new room starts with the basics (door, window, bed, dresser, rug, desk), empty, or as a copy of the example room. Three rooms are seeded on first launch: the example bedroom, a nursery measured in inches, and an 11 × 11 ft second bedroom with its door on an angled corner wall.
-- **Angled corners (4 to 8 walls).** Under Room → Corners, any corner can be cut off by a short angled wall (set how far it runs along each wall; equal lengths make 45°). Windows and doors can go on the angled walls. The plan, 3D view, print sheet, checks, walk mode and layout suggestions all follow the new outline, and furniture in a cut-off corner counts as going through a wall.
+- **Any room shape (3 to 20 walls).** Room → Edit walls opens a wall editor. Draw the shape by clicking corners on a grid (one square is a foot, or 25 cm), then type the real length of each wall and set each corner: 90°, a 45° angled wall (135°), an inside corner (270° or 225°), or any angle in 5° steps. One wall, the last by default, is worked out so the walls always meet, and a preview shows the shape as you type. Doors, windows and closets go on any wall; the plan, 3D view, print sheet, checks, walk mode and layout suggestions all follow the outline, and furniture where there is no floor counts as going through a wall. Rooms saved with the earlier angled corners open as drawn rooms.
 - **Rooms library.** Your saved rooms live below the start screen. Create a room with a name and a group (for example "Home" or "2027 renovation"), reopen it later, duplicate it, rename it, export it as JSON, or import one. Every change is saved automatically about a second after you stop editing. The first launch seeds an example room.
 - **Floor plan.** Drag items, turn them to any angle with the rotate handle (snaps to 15° and to the straight positions, hold Shift for free), press `R` for a quarter turn, type an exact angle in the selection panel, or drag them into the "out of the room" strip to remove them. The selected item shows its distance to the nearest walls.
 - **Locks.** Lock a piece in place (selection panel, the padlock on the plan, or `L`) and it can't be dragged or turned. Suggested layouts arrange everything else around it.
@@ -100,6 +100,8 @@ Vite, React 19, TypeScript, Three.js via react-three-fiber and drei, zustand for
 | `src/migrate.ts` | Loads rooms saved by older versions |
 | `src/store.ts` | Planner state: items, undo/redo, layouts, view, settings, share link |
 | `src/library.ts` | Rooms library: documents, groups, autosave, import/export |
+| `src/outline.ts` | Drawn room shapes: walls from lengths and angles and back, tidying, moving openings onto new walls |
+| `src/components/WallEditor.tsx` | The Edit walls dialog: draw on a grid, then lengths and angles |
 | `src/storage/` | Storage backends: Tauri files, the dev server's rooms folder, browser local storage |
 | `scripts/room-folder.ts` | Vite plugin: the `/__rooms` API that reads and writes the rooms folder for the browser build |
 | `src/components/Library.tsx` | The home screen |

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { useMemo } from 'react'
-import { CLOSET_HEIGHT } from '../geometry'
+import { CLOSET_HEIGHT, wallFacing } from '../geometry'
 import { useStore } from '../store'
 import type { Closet as ClosetSpec, Room } from '../types'
 import { brushed, chrome, paint, wallMat, type Detail } from './Shell'
@@ -44,7 +44,7 @@ export function Closet({ room, closet: c, detail }: { room: Room; closet: Closet
   const zMid = -dd / 2
   const phi = (doorAngle * Math.PI) / 180
   const inside = wallMat('#f4f1eb', detail)
-  const outside = wallMat(room.wallColors[c.wall], detail)
+  const outside = wallMat(room.wallColors[wallFacing(room, c.wall)], detail)
   const trim = paint('#fbfaf7', 0.5)
   const leafPaint = paint('#f9f7f3', 0.5)
   const panelPaint = paint('#f2efe9', 0.6)
