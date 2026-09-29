@@ -19,7 +19,7 @@ function writeIndex(list: RoomSummary[]) {
 
 /** Browser backend: one localStorage entry per room plus a small index. */
 export class LocalStorageBackend implements RoomStorage {
-  readonly location = 'this browser'
+  readonly location: string = 'this browser'
 
   async list() {
     return readIndex().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))

@@ -100,3 +100,69 @@ export function forestsRoom(): RoomDoc {
     version: DOC_VERSION,
   }
 }
+
+/**
+ * Bedroom 2 — 11 × 11 ft with an 8 ft ceiling, sizes in inches:
+ * window 66 wide, 24 tall, sill 58; two doors, both 32 wide; a closet.
+ * Bed 67 × 85 × 24, desk 81 × 34 × 27, dresser 14½ × 19 × 46, side table 16 × 23 × 24.
+ * Where the doors and closet sit was not given: door 1 is in the front-left corner, door 2 on the
+ * right wall by the front corner, and the closet (60 wide, 24 deep, sliding) on the left wall.
+ * The bed, dresser and side table are arranged the way the layout suggestions place them. The
+ * 81 in desk blocks a door or a clearance wherever it goes in this room, so it starts parked
+ * beside the plan; drag it in to try it.
+ */
+const BEDROOM_2_SEED_TIME = '2026-09-29T00:00:00.000Z'
+
+export function bedroomTwo(): RoomDoc {
+  const S = inch(132) // 335
+  const winW = inch(66)
+  const doorW = inch(32)
+  const room: Room = {
+    name: 'Bedroom 2',
+    subtitle: 'Bedroom',
+    w: S,
+    d: S,
+    h: inch(96),
+    windows: [{ id: 'w1', wall: 'top', offset: Math.round((S - winW) / 2), width: winW, height: inch(24), sill: inch(58) }],
+    doors: [
+      { id: 'd1', wall: 'bottom', offset: 10, width: doorW, height: inch(80), sill: 0, hinge: 'left', swing: 'in' },
+      { id: 'd2', wall: 'right', offset: S - inch(36), width: doorW, height: inch(80), sill: 0, hinge: 'right', swing: 'in' },
+    ],
+    radiators: [],
+    closets: [{ id: 'c1', wall: 'left', offset: inch(12), width: inch(60), depth: inch(24), doors: 'sliding' }],
+    wallColors: { left: '#e4e1da', right: '#e4e1da', top: '#f2efe9', bottom: '#f2efe9' },
+    floorColor: '#a47e5c',
+  }
+
+  const piece = (id: string, name: string, kind: Item['kind'], wIn: number, dIn: number, hIn: number, x: number, y: number, rot: Item['rot'], color: string, extra: Partial<Item> = {}): Item => ({
+    id, name, kind, w: inch(wIn), d: inch(dIn), h: inch(hIn), x, y, rot, color, inRoom: true, note: `${wIn} × ${dIn} × ${hIn} in`, ...extra,
+  })
+
+  // Positions are footprint centres in cm; x from the left wall, y from the back (window) wall.
+  const items: Item[] = [
+    // bed under the window, head against the back wall (the 24 in bed sits well below the 58 in sill)
+    piece('b2-bed', 'Bed', 'bed', 67, 85, 24, 140, 108, 0, '#d9d2c5'),
+    piece('b2-side', 'Side table', 'nightstand', 16, 23, 24, 246, 29, 0, '#b88b62'),
+    // narrow tall dresser against the right wall, drawers facing the room
+    piece('b2-dresser', 'Dresser', 'dresser', 14.5, 19, 46, 311, 119, 90, '#efe9df'),
+    // parked below the plan: see the doc comment
+    piece('b2-desk', 'Desk', 'desk', 81, 34, 27, S / 2, S + 40 + inch(34) / 2, 0, '#8a6a4f', {
+      inRoom: false,
+      note: '81 × 34 × 27 in. Too long to stand anywhere in this room without blocking a door or the walkway; drag it in to see what it costs.',
+    }),
+  ]
+
+  return {
+    id: 'room-bedroom-2',
+    name: 'Bedroom 2',
+    group: 'Home',
+    notes: 'Sizes in inches. The window is centred on the back wall. The doors and the closet are placed by guess (door 1 front-left, door 2 on the right wall by the front corner, a 60 in sliding closet on the left wall): drag them to where they really are, then try "Suggest layouts". The 81 in desk starts parked beside the plan because it blocks a door wherever it goes.',
+    createdAt: BEDROOM_2_SEED_TIME,
+    updatedAt: BEDROOM_2_SEED_TIME,
+    room,
+    items,
+    layouts: [],
+    settings: { daytime: true, doorAngle: 70, blinds: 30, bedding: true, walkHeight: 'adult', quality: 'best' },
+    version: DOC_VERSION,
+  }
+}

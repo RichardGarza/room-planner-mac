@@ -1,8 +1,8 @@
 import type { RoomDoc, RoomSummary } from '../types'
 
 /**
- * Where room documents live. The browser build uses localStorage; the Mac app
- * (Tauri) writes JSON files to ~/Documents/Room Planner. Both implement this.
+ * Where room documents live. The Mac app (Tauri) and the dev/preview server write JSON files to
+ * ~/Documents/Room Planner; a static build on a web host uses localStorage. All implement this.
  */
 export interface RoomStorage {
   /** Human-readable description of where files go, shown in the library UI. */
@@ -17,6 +17,12 @@ export interface RoomStorage {
   importDoc?(): Promise<RoomDoc | null>
   /** Optional: hand the user a binary file such as a PDF (native save dialog in Tauri, download in the browser). Resolves silently when cancelled. */
   saveFile?(name: string, data: Uint8Array, mime: string): Promise<void>
+  /**
+   * Optional: ids of the built-in rooms (the example, Forest's Room, …) this library has already
+   * been given, kept next to the rooms so a deleted one stays deleted in every copy of the app.
+   */
+  seededIds?(): Promise<string[]>
+  markSeeded?(ids: string[]): Promise<void>
 }
 
 export function summarize(doc: RoomDoc): RoomSummary {

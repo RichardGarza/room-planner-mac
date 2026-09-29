@@ -4,7 +4,7 @@ import { defaultItems, defaultRoom, makeEmptyRoom, presetLayouts } from './data'
 import { doorClearance, doorwayRect, intersects, isRugKind, rectOf } from './geometry'
 import { migrateDoc } from './migrate'
 import { findFreeSpot, type PlacementOptions, type Spot } from './placement'
-import { forestsRoom } from './seeds'
+import { bedroomTwo, forestsRoom } from './seeds'
 import { getStorage, summarize, type RoomStorage } from './storage'
 import { park, useStore } from './store'
 import type { CatalogEntry, Door, Item, Opening, Room, RoomDoc, RoomSummary } from './types'
@@ -137,19 +137,34 @@ export function exampleDoc(name = defaultRoom.name, group = 'Examples'): RoomDoc
 /**
  * Rooms every library starts with: the example room and Forest's nursery. On every refresh a seed
  * whose id is missing and whose flag is unset is saved and flagged, so each appears once per browser
- * and deleting it never brings it back. The flags live in localStorage even in the Mac app.
+ * and deleting it never brings it back. The flags live in localStorage and, where the backend keeps
+ * them (the rooms folder), next to the rooms, so a fresh copy of the app does not bring one back.
  */
 /** Bump when the example room's contents change so unedited seeded copies are refreshed. */
 const EXAMPLE_SEED_TIME = '2026-09-25T00:00:00.000Z'
 const seedBuilders: (() => RoomDoc)[] = [
   () => ({ ...exampleDoc(), id: EXAMPLE_ID, createdAt: EXAMPLE_SEED_TIME, updatedAt: EXAMPLE_SEED_TIME }),
   forestsRoom,
+  bedroomTwo,
 ]
+
+/** Ids the storage backend has recorded as seeded; empty when it keeps none or cannot be read. */
+async function sharedSeeds(s: RoomStorage): Promise<Set<string>> {
+  if (!s.seededIds) return new Set()
+  try {
+    return new Set(await s.seededIds())
+  } catch (e) {
+    console.warn('Could not read the seeded-rooms record', e)
+    return new Set()
+  }
+}
 
 /** Add the seeds that are missing and not yet flagged; true when something was saved. */
 async function seedMissing(s: RoomStorage, list: RoomSummary[]): Promise<boolean> {
   // before per-document flags there was a single flag, set once the example had been seeded
   if (flagGet(SEEDED_KEY) && !flagGet(seedKey(EXAMPLE_ID))) flagSet(seedKey(EXAMPLE_ID), '1')
+  const shared = await sharedSeeds(s)
+  const record: string[] = []
   let added = false
   for (const build of seedBuilders) {
     const doc = build()
@@ -159,12 +174,23 @@ async function seedMissing(s: RoomStorage, list: RoomSummary[]): Promise<boolean
       await s.save(doc)
       added = true
     }
-    if (flagGet(seedKey(doc.id))) continue
+    if (!shared.has(doc.id)) record.push(doc.id)
+    if (flagGet(seedKey(doc.id)) || shared.has(doc.id)) {
+      flagSet(seedKey(doc.id), '1')
+      continue
+    }
     if (!existing) {
       await s.save(doc)
       added = true
     }
     flagSet(seedKey(doc.id), '1')
+  }
+  if (record.length && s.markSeeded) {
+    try {
+      await s.markSeeded(record)
+    } catch (e) {
+      console.warn('Could not update the seeded-rooms record', e)
+    }
   }
   return added
 }

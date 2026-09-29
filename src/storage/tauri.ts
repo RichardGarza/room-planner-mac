@@ -14,6 +14,8 @@ import { summarize, type RoomStorage } from './types'
 const FOLDER = 'Room Planner'
 const LOCATION = `~/Documents/${FOLDER}`
 const SEP = '--'
+/** One id per line: the built-in rooms already added to this library (see RoomStorage.seededIds). */
+const SEEDED_FILE = 'seeded-rooms.txt'
 const JSON_FILTER = [{ name: 'Room', extensions: ['json'] }]
 /** All folder-relative paths resolve against the user's Documents folder. */
 const IN_DOCS = { baseDir: BaseDirectory.Document } as const
@@ -193,6 +195,17 @@ export class TauriFsBackend implements RoomStorage {
   async remove(id: string): Promise<void> {
     await ensureFolder()
     for (const name of await fileNamesFor(id)) await removeRoomFile(name)
+  }
+
+  async seededIds(): Promise<string[]> {
+    await ensureFolder()
+    if (!(await exists(inFolder(SEEDED_FILE), IN_DOCS))) return []
+    return (await readTextFile(inFolder(SEEDED_FILE), IN_DOCS)).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  }
+
+  async markSeeded(ids: string[]): Promise<void> {
+    const all = [...new Set([...(await this.seededIds()), ...ids])].sort()
+    await writeTextFile(inFolder(SEEDED_FILE), all.join('\n') + '\n', IN_DOCS)
   }
 
   async exportDoc(doc: RoomDoc): Promise<void> {

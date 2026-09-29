@@ -6,7 +6,7 @@ It runs in the browser and as a native Mac app. This repository is the Mac and w
 
 ## What it does
 
-- **Start screen.** The app opens with "Start a new room" and "Open an existing room". A new room starts with the basics (door, window, bed, dresser, rug, desk), empty, or as a copy of the example room. Two rooms are seeded on first launch: the example bedroom and a nursery measured in inches.
+- **Start screen.** The app opens with "Start a new room" and "Open an existing room". A new room starts with the basics (door, window, bed, dresser, rug, desk), empty, or as a copy of the example room. Three rooms are seeded on first launch: the example bedroom, a nursery measured in inches, and an 11 × 11 ft second bedroom.
 - **Rooms library.** Your saved rooms live below the start screen. Create a room with a name and a group (for example "Home" or "2027 renovation"), reopen it later, duplicate it, rename it, export it as JSON, or import one. Every change is saved automatically about a second after you stop editing. The first launch seeds an example room.
 - **Floor plan.** Drag items, turn them to any angle with the rotate handle (snaps to 15° and to the straight positions, hold Shift for free), press `R` for a quarter turn, type an exact angle in the selection panel, or drag them into the "out of the room" strip to remove them. The selected item shows its distance to the nearest walls.
 - **Locks.** Lock a piece in place (selection panel, the padlock on the plan, or `L`) and it can't be dragged or turned. Suggested layouts arrange everything else around it.
@@ -31,7 +31,7 @@ npm install
 npm run dev
 ```
 
-Then open the printed local URL. `npm run build` produces a static site in `dist/`. In the browser, rooms are kept in the browser's local storage.
+Then open the printed local URL. The dev server (and `npm run preview`) saves rooms to `~/Documents/Room Planner/`, the same folder the Mac app uses, so every copy of the app on this Mac shares one set of rooms: a new clone, another port, another browser, or the Mac app. Rooms an older version kept in browser storage are copied into the folder the first time. Set `ROOM_PLANNER_DIR` to use a different folder. `npm run build` produces a static site in `dist/`; hosted on its own, without the dev server, it keeps rooms in the browser's local storage.
 
 ## Run it as a Mac app
 
@@ -44,7 +44,7 @@ npm run app:build   # release build
 
 The build produces `src-tauri/target/release/bundle/macos/Room Planner.app` and a disk image at `src-tauri/target/release/bundle/dmg/Room Planner_<version>_aarch64.dmg` (Apple Silicon; add `-- --target x86_64-apple-darwin` for Intel Macs). If the dmg step fails on your machine, which can happen because it drives Finder to lay out the image window, `npx tauri build --bundles app` builds just the app.
 
-In the Mac app every room is a JSON file in `~/Documents/Room Planner/`, named `<room-name>--<id>.json`. You can back up, sync, or share that folder. Export and Import use the normal macOS save and open dialogs. macOS asks once for permission to use your Documents folder.
+In the Mac app every room is a JSON file in `~/Documents/Room Planner/`, named `<room-name>--<id>.json`, with its saved layouts inside. The folder lives outside the app, so rebuilding, reinstalling, or deleting the app never touches your rooms. You can back up, sync, or share that folder. `seeded-rooms.txt` in the same folder records which built-in rooms have been added, so one you delete stays deleted. Export and Import use the normal macOS save and open dialogs. macOS asks once for permission to use your Documents folder.
 
 The app is not code-signed or notarized. The first time you open it, right-click (or Control-click) `Room Planner.app` and choose Open, then confirm. After that it opens normally.
 
@@ -99,7 +99,8 @@ Vite, React 19, TypeScript, Three.js via react-three-fiber and drei, zustand for
 | `src/migrate.ts` | Loads rooms saved by older versions |
 | `src/store.ts` | Planner state: items, undo/redo, layouts, view, settings, share link |
 | `src/library.ts` | Rooms library: documents, groups, autosave, import/export |
-| `src/storage/` | Storage backends: browser local storage and Tauri files |
+| `src/storage/` | Storage backends: Tauri files, the dev server's rooms folder, browser local storage |
+| `scripts/room-folder.ts` | Vite plugin: the `/__rooms` API that reads and writes the rooms folder for the browser build |
 | `src/components/Library.tsx` | The home screen |
 | `src/components/FloorPlan.tsx` | SVG floor plan with drag and dimension lines |
 | `src/scene/` | The 3D scene: renderer, lights, effects, cameras, walls and openings, outside, floor |

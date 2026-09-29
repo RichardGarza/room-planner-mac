@@ -14,7 +14,7 @@ class MemoryStorage {
 
 import { AUTOSAVE_MS, EXAMPLE_ID, SEEDED_KEY, defaultRoomSize, roomOpenings, seedKey, timeAgo, useLibrary, type CreateInput } from '../library'
 import { PARK_Y, useStore } from '../store'
-import { forestsRoom } from '../seeds'
+import { bedroomTwo, forestsRoom } from '../seeds'
 import { findFreeSpot } from '../placement'
 import { summarize, type RoomStorage } from '../storage/types'
 import { DOC_VERSION } from '../migrate'
@@ -53,16 +53,18 @@ afterEach(async () => {
 })
 
 describe('library', () => {
-  it("seeds the example room and Forest's Room once each", async () => {
+  it("seeds the example room, Forest's Room and Bedroom 2 once each", async () => {
     await useLibrary.getState().refresh()
     const rooms = useLibrary.getState().rooms
-    expect(rooms.map((r) => r.id)).toEqual([EXAMPLE_ID, 'room-forest'])
-    expect(rooms.map((r) => r.name)).toEqual(["Mila's room", "Forest's Room"])
+    expect(rooms.map((r) => r.id)).toEqual([EXAMPLE_ID, 'room-forest', 'room-bedroom-2'])
+    expect(rooms.map((r) => r.name)).toEqual(["Mila's room", "Forest's Room", 'Bedroom 2'])
     expect(rooms[0].group).toBe('Examples')
     expect(rooms[0].itemCount).toBe(8)
     expect(rooms[1].group).toBe('Home')
     expect(rooms[1].itemCount).toBe(7)
     expect(storage.docs.get('room-forest')).toEqual(forestsRoom())
+    expect(storage.docs.get('room-bedroom-2')).toEqual(bedroomTwo())
+    expect(rooms[2].itemCount).toBe(3)
     expect(useLibrary.getState().groups).toEqual(['Examples', 'Home'])
     expect(useLibrary.getState().location).toBe('a test')
     expect(localStorage.getItem(seedKey(EXAMPLE_ID))).toBe('1')
@@ -73,12 +75,13 @@ describe('library', () => {
     const saves = storage.saves
     await useLibrary.getState().refresh()
     expect(storage.saves).toBe(saves)
-    expect(useLibrary.getState().rooms).toHaveLength(2)
+    expect(useLibrary.getState().rooms).toHaveLength(3)
   })
 
   it('never brings a deleted seed back', async () => {
     await useLibrary.getState().refresh()
     await useLibrary.getState().remove('room-forest')
+    await useLibrary.getState().remove('room-bedroom-2')
     await useLibrary.getState().refresh()
     expect(useLibrary.getState().rooms.map((r) => r.id)).toEqual([EXAMPLE_ID])
     await useLibrary.getState().remove(EXAMPLE_ID)
@@ -92,20 +95,52 @@ describe('library', () => {
   it('treats the old single flag as "the example was seeded already"', async () => {
     localStorage.setItem(SEEDED_KEY, '1')
     await useLibrary.getState().refresh()
-    expect(useLibrary.getState().rooms.map((r) => r.id)).toEqual(['room-forest'])
+    expect(useLibrary.getState().rooms.map((r) => r.id)).toEqual(['room-forest', 'room-bedroom-2'])
     expect(localStorage.getItem(seedKey(EXAMPLE_ID))).toBe('1')
     await useLibrary.getState().refresh()
-    expect(useLibrary.getState().rooms).toHaveLength(1)
+    expect(useLibrary.getState().rooms).toHaveLength(2)
   })
 
   it('marks a seed as done when a room with its id is already in the library', async () => {
     storage.docs.set('room-forest', { ...forestsRoom(), name: 'My nursery' })
     await useLibrary.getState().refresh()
-    expect(useLibrary.getState().rooms.map((r) => r.name)).toEqual(['My nursery', "Mila's room"])
+    expect(useLibrary.getState().rooms.map((r) => r.name)).toEqual(['My nursery', "Mila's room", 'Bedroom 2'])
     expect(localStorage.getItem(seedKey('room-forest'))).toBe('1')
     await useLibrary.getState().remove('room-forest')
     await useLibrary.getState().refresh()
-    expect(useLibrary.getState().rooms.map((r) => r.id)).toEqual([EXAMPLE_ID])
+    expect(useLibrary.getState().rooms.map((r) => r.id)).toEqual([EXAMPLE_ID, 'room-bedroom-2'])
+  })
+
+  it('keeps the seeded record next to the rooms so a fresh copy of the app does not bring a deleted seed back', async () => {
+    class RecordingStorage extends FakeStorage {
+      seeded = new Set<string>()
+      async seededIds() { return [...this.seeded] }
+      async markSeeded(ids: string[]) { ids.forEach((i) => this.seeded.add(i)) }
+    }
+    const shared = new RecordingStorage()
+    useLibrary.getState().configure({ storage: shared })
+    await useLibrary.getState().refresh()
+    expect([...shared.seeded].sort()).toEqual(['room-bedroom-2', EXAMPLE_ID, 'room-forest'])
+    await useLibrary.getState().remove('room-forest')
+
+    // a new copy of the app: its browser storage is empty, the folder is the same
+    localStorage.clear()
+    await useLibrary.getState().refresh()
+    expect(useLibrary.getState().rooms.map((r) => r.id).sort()).toEqual(['room-bedroom-2', EXAMPLE_ID])
+  })
+
+  it('copies seeds flagged in this browser into the shared record', async () => {
+    class RecordingStorage extends FakeStorage {
+      seeded = new Set<string>()
+      async seededIds() { return [...this.seeded] }
+      async markSeeded(ids: string[]) { ids.forEach((i) => this.seeded.add(i)) }
+    }
+    const shared = new RecordingStorage()
+    localStorage.setItem(seedKey('room-forest'), '1') // seeded and then deleted before the record existed
+    useLibrary.getState().configure({ storage: shared })
+    await useLibrary.getState().refresh()
+    expect(useLibrary.getState().rooms.map((r) => r.id)).not.toContain('room-forest')
+    expect(shared.seeded.has('room-forest')).toBe(true)
   })
 
   it('create() adds a room and opens it in the planner', async () => {
@@ -114,7 +149,7 @@ describe('library', () => {
     const lib = useLibrary.getState()
     expect(lib.currentId).toBe(id)
     expect(lib.status).toBe('saved')
-    expect(lib.rooms.map((r) => r.name).sort()).toEqual(["Forest's Room", "Mila's room", 'Study'])
+    expect(lib.rooms.map((r) => r.name).sort()).toEqual(['Bedroom 2', "Forest's Room", "Mila's room", 'Study'])
     expect(lib.groups).toEqual(['Examples', 'Home'])
     const st = useStore.getState()
     expect(st.room.name).toBe('Study')
@@ -272,7 +307,7 @@ describe('library', () => {
     const copyId = await useLibrary.getState().duplicate(id)
     expect(copyId).toBeTruthy()
     expect(copyId).not.toBe(id)
-    expect(useLibrary.getState().rooms).toHaveLength(3)
+    expect(useLibrary.getState().rooms).toHaveLength(4)
     const copy = storage.docs.get(copyId!)!
     expect(copy.name).toBe("Mila's room (copy)")
     expect(copy.items).toHaveLength(8)
@@ -323,7 +358,7 @@ describe('library', () => {
     expect(st.items).toHaveLength(1)
     expect(st.savedLayouts).toEqual([])
     expect(storage.docs.get('room-old')!.version).toBe(DOC_VERSION)
-    expect(useLibrary.getState().rooms.map((r) => r.name).sort()).toEqual(["Forest's Room", "Mila's room", 'Old room'])
+    expect(useLibrary.getState().rooms.map((r) => r.name).sort()).toEqual(['Bedroom 2', "Forest's Room", "Mila's room", 'Old room'])
 
     // an unreadable file is reported, not thrown
     storage.nextImport = { nothing: true }
@@ -563,10 +598,10 @@ describe('share links', () => {
       expect(useStore.getState().daytime).toBe(false)
       expect(replaced).toEqual(['/planner?x=1'])
       // the seed rooms were added as well
-      expect(lib.rooms.map((r) => r.group).sort()).toEqual(['Examples', 'Home', 'Shared'])
+      expect(lib.rooms.map((r) => r.group).sort()).toEqual(['Examples', 'Home', 'Home', 'Shared'])
       // start() is idempotent (StrictMode mounts twice)
       await useLibrary.getState().start()
-      expect(storage.docs.size).toBe(3)
+      expect(storage.docs.size).toBe(4)
     } finally {
       delete g.location
       delete g.history
