@@ -2,6 +2,7 @@ import { plannerTitle, useOwner } from '../owner'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useHouses } from '../houses'
 import './house.css'
+import { HouseThumb } from './HouseThumb'
 import { getStorage } from '../storage'
 import { defaultRoomSize, timeAgo, useLibrary, type StartWith } from '../library'
 import { migrateDoc } from '../migrate'
@@ -120,7 +121,7 @@ export function Library() {
           <div className="lib-houses-list">
             {houses.map((h) => (
               <button key={h.id} type="button" className="lib-house" onClick={() => void openHouse(h.id)}>
-                <span className="lib-action-icon" aria-hidden="true"><RoomIcon /></span>
+                <HouseThumb house={h} width={150} />
                 <span>
                   <strong>{h.name}</strong>
                   <span>{h.rooms.length} room{h.rooms.length === 1 ? '' : 's'} · see them all on one map</span>

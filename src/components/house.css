@@ -19,7 +19,7 @@
 .lib-houses-list { display: flex; gap: 12px; flex-wrap: wrap; }
 .lib-house { display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); border: 2px solid transparent; text-align: left; min-width: 260px; }
 .lib-house:hover, .lib-house:focus-visible { border-color: var(--pink); outline: none; }
-.lib-house strong { font-size: 15px; font-weight: 900; display: block; }
+.lib-house strong { font-size: 15px; font-weight: 900; display: block; color: var(--ink); }
 .lib-house span { font-size: 12px; color: var(--muted); font-weight: 600; }
 .lib-house .lib-action-icon { width: 42px; height: 42px; }
 .lib-house .lib-action-icon svg { width: 22px; height: 22px; }
@@ -50,3 +50,4 @@
 
 /* connected doors */
 .house-passage { fill: #fbf7f2; stroke: var(--pink); stroke-width: 2; stroke-dasharray: 5 4; }
+.house-thumb { flex: none; background: #f3eee8; border-radius: 10px; }
