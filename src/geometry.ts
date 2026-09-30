@@ -274,7 +274,8 @@ export function polygonArea(poly: Polygon): number {
   return a / 2
 }
 
-function segmentsCross(a: [number, number], b: [number, number], c: [number, number], d: [number, number]) {
+/** True when two segments properly cross (touching at an end, or running along each other, does not count). */
+export function segmentsCross(a: [number, number], b: [number, number], c: [number, number], d: [number, number]) {
   const o = (p: [number, number], q: [number, number], r: [number, number]) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
   const d1 = o(c, d, a), d2 = o(c, d, b), d3 = o(a, b, c), d4 = o(a, b, d)
   return ((d1 > 1e-9 && d2 < -1e-9) || (d1 < -1e-9 && d2 > 1e-9)) && ((d3 > 1e-9 && d4 < -1e-9) || (d3 < -1e-9 && d4 > 1e-9))
