@@ -1,7 +1,9 @@
+import { migrateHouse, type HouseDoc } from '../house'
 import type { RoomDoc, RoomSummary } from '../types'
 import { summarize, type RoomStorage } from './types'
 
 const INDEX_KEY = 'room-planner.rooms.index'
+const HOUSES_KEY = 'room-planner.houses'
 const DOC_PREFIX = 'room-planner.rooms.doc.'
 
 function readIndex(): RoomSummary[] {
@@ -44,6 +46,24 @@ export class LocalStorageBackend implements RoomStorage {
   async remove(id: string) {
     localStorage.removeItem(DOC_PREFIX + id)
     writeIndex(readIndex().filter((r) => r.id !== id))
+  }
+
+  async listHouses(): Promise<HouseDoc[]> {
+    try {
+      const raw = JSON.parse(localStorage.getItem(HOUSES_KEY) ?? '[]') as unknown[]
+      return raw.map(migrateHouse).filter((h): h is HouseDoc => h !== null)
+    } catch {
+      return []
+    }
+  }
+
+  async saveHouse(house: HouseDoc) {
+    const rest = (await this.listHouses()).filter((h) => h.id !== house.id)
+    localStorage.setItem(HOUSES_KEY, JSON.stringify([...rest, house]))
+  }
+
+  async removeHouse(id: string) {
+    localStorage.setItem(HOUSES_KEY, JSON.stringify((await this.listHouses()).filter((h) => h.id !== id)))
   }
 
   async exportDoc(doc: RoomDoc) {

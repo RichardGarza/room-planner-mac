@@ -2,6 +2,7 @@ import { open, save } from '@tauri-apps/plugin-dialog'
 import { BaseDirectory, exists, mkdir, readDir, readTextFile, remove, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { migrateDoc } from '../migrate'
 import type { RoomDoc, RoomSummary } from '../types'
+import { migrateHouse, type HouseDoc } from '../house'
 import { backupRooms, type BackupFs } from './backup'
 import { summarize, type RoomStorage } from './types'
 
@@ -13,6 +14,8 @@ import { summarize, type RoomStorage } from './types'
  */
 
 const FOLDER = 'Room Planner'
+/** Houses (src/house.ts) live in a folder of their own next to the rooms, so room listings never see them. */
+const HOUSES = `${FOLDER}/Houses`
 const LOCATION = `~/Documents/${FOLDER}`
 const SEP = '--'
 /** One id per line: the built-in rooms already added to this library (see RoomStorage.seededIds). */
@@ -217,6 +220,41 @@ export class TauriFsBackend implements RoomStorage {
   async markSeeded(ids: string[]): Promise<void> {
     const all = [...new Set([...(await this.seededIds()), ...ids])].sort()
     await writeTextFile(inFolder(SEEDED_FILE), all.join('\n') + '\n', IN_DOCS)
+  }
+
+  async listHouses(): Promise<HouseDoc[]> {
+    await ensureFolder()
+    if (!(await exists(HOUSES, IN_DOCS))) return []
+    const byId = new Map<string, HouseDoc>()
+    for (const e of await readDir(HOUSES, IN_DOCS)) {
+      if (!e.isFile || !isRoomFile(e.name)) continue
+      try {
+        const house = migrateHouse(JSON.parse(await readTextFile(`${HOUSES}/${e.name}`, IN_DOCS)))
+        const seen = house && byId.get(house.id)
+        if (house && (!seen || house.updatedAt > seen.updatedAt)) byId.set(house.id, house)
+      } catch (err) {
+        console.warn('Skipping house file', e.name, describe(err))
+      }
+    }
+    return [...byId.values()]
+  }
+
+  async saveHouse(house: HouseDoc): Promise<void> {
+    await ensureFolder()
+    if (!(await exists(HOUSES, IN_DOCS))) await mkdir(HOUSES, { ...IN_DOCS, recursive: true })
+    const target = `${slugOf(house.name)}${SEP}${house.id}.json`
+    const stale = (await readDir(HOUSES, IN_DOCS)).filter((e) => e.isFile && e.name.endsWith(suffixFor(house.id)) && e.name !== target)
+    try {
+      await writeTextFile(`${HOUSES}/${target}`, JSON.stringify(house, null, 2), IN_DOCS)
+    } catch (err) {
+      throw new Error(`Could not save the house "${house.name}": ${describe(err)}`)
+    }
+    for (const e of stale) await remove(`${HOUSES}/${e.name}`, IN_DOCS).catch((err) => console.warn(describe(err)))
+  }
+
+  async removeHouse(id: string): Promise<void> {
+    if (!(await exists(HOUSES, IN_DOCS))) return
+    for (const e of await readDir(HOUSES, IN_DOCS)) if (e.isFile && e.name.endsWith(suffixFor(id))) await remove(`${HOUSES}/${e.name}`, IN_DOCS)
   }
 
   async backup(): Promise<string | null> {

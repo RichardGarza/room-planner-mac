@@ -70,4 +70,13 @@ describe('room backups', () => {
   it('names folders so they sort by time', () => {
     expect(stamp(new Date(2026, 0, 5, 7, 3, 9))).toBe('2026-01-05 07.03.09')
   })
+
+  it('takes the houses along, and notices when only a house changed', async () => {
+    const { fs, disk } = memoryFs({ ...rooms, 'R/Houses/home--house-home.json': '{"id":"house-home","rooms":[]}' })
+    const first = await backupRooms(fs, 'R', at(9))
+    expect(disk.get(`R/Backups/${first}/Houses/home--house-home.json`)).toBe('{"id":"house-home","rooms":[]}')
+    expect(await backupRooms(fs, 'R', at(10))).toBeNull()
+    disk.set('R/Houses/home--house-home.json', '{"id":"house-home","rooms":[{"roomId":"a"}]}')
+    expect(await backupRooms(fs, 'R', at(11))).toBe('2026-09-29 11.00.00')
+  })
 })

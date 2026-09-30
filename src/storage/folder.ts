@@ -1,3 +1,4 @@
+import { migrateHouse, type HouseDoc } from '../house'
 import { migrateDoc } from '../migrate'
 import type { RoomDoc, RoomSummary } from '../types'
 import { LocalStorageBackend } from './local'
@@ -72,6 +73,20 @@ export class FolderApiBackend extends LocalStorageBackend {
 
   async remove(id: string): Promise<void> {
     await call(`/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  }
+
+  async listHouses(): Promise<HouseDoc[]> {
+    const body = (await (await call('/_houses')).json()) as { houses?: unknown[] }
+    return (body.houses ?? []).map(migrateHouse).filter((h): h is HouseDoc => h !== null)
+  }
+
+  async saveHouse(house: HouseDoc): Promise<void> {
+    const body = JSON.stringify(house)
+    await call(`/_houses/${encodeURIComponent(house.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive: body.length < 60000 })
+  }
+
+  async removeHouse(id: string): Promise<void> {
+    await call(`/_houses/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   async backup(): Promise<string | null> {

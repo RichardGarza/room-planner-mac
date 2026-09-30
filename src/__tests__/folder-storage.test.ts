@@ -73,3 +73,15 @@ describe('adoptBrowserRooms', () => {
     expect(folder.docs.get('room-forest')?.updatedAt).toBe('2026-09-20T00:00:00.000Z')
   })
 })
+
+describe('houses in the browser', () => {
+  it('keeps houses in local storage when there is no rooms folder', async () => {
+    const local = new LocalStorageBackend()
+    const house = { id: 'house-home', name: 'Home', createdAt: '', updatedAt: '', version: 1, rooms: [{ roomId: 'room-a', x: 0, y: 0, rot: 0 as const }] }
+    await local.saveHouse(house)
+    await local.saveHouse({ ...house, name: 'Our home' })
+    expect((await local.listHouses()).map((h) => h.name)).toEqual(['Our home'])
+    await local.removeHouse('house-home')
+    expect(await local.listHouses()).toEqual([])
+  })
+})

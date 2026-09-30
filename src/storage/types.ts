@@ -1,3 +1,4 @@
+import type { HouseDoc } from '../house'
 import type { RoomDoc, RoomSummary } from '../types'
 
 /**
@@ -25,6 +26,10 @@ export interface RoomStorage {
   markSeeded?(ids: string[]): Promise<void>
   /** Optional: copy every room file into Backups/<date time>/ when they changed since the last copy (src/storage/backup.ts). Resolves the new folder's name, or null. */
   backup?(): Promise<string | null>
+  /** Houses (src/house.ts): where rooms sit in a home. Kept in Houses/ next to the rooms. */
+  listHouses?(): Promise<HouseDoc[]>
+  saveHouse?(house: HouseDoc): Promise<void>
+  removeHouse?(id: string): Promise<void>
 }
 
 export function summarize(doc: RoomDoc): RoomSummary {

@@ -79,6 +79,30 @@ export async function removeDoc(dir: string, id: string) {
   for (const name of await roomFiles(dir)) if (name.endsWith(`${SEP}${id}.json`)) await rm(join(dir, name), { force: true })
 }
 
+/** Houses live in Houses/ next to the rooms, named like rooms ("<slug>--<id>.json"). */
+const housesDir = (dir: string) => join(dir, 'Houses')
+
+export async function listHouses(dir: string): Promise<unknown[]> {
+  try {
+    return await listDocs(housesDir(dir))
+  } catch {
+    return []
+  }
+}
+
+export async function saveHouse(dir: string, house: DocLike) {
+  await mkdir(housesDir(dir), { recursive: true })
+  await saveDoc(housesDir(dir), house)
+}
+
+export async function removeHouse(dir: string, id: string) {
+  try {
+    await removeDoc(housesDir(dir), id)
+  } catch {
+    // no Houses folder: nothing to remove
+  }
+}
+
 export async function seededIds(dir: string): Promise<string[]> {
   try {
     return (await readFile(join(dir, SEEDED_FILE), 'utf8')).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
@@ -122,13 +146,32 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString('utf8')
 }
 
-/** GET /__rooms, GET|PUT|DELETE /__rooms/<id>, GET|POST /__rooms/_seeded, POST /__rooms/_backup. */
+/** GET /__rooms, GET|PUT|DELETE /__rooms/<id>, GET|POST /__rooms/_seeded, POST /__rooms/_backup, GET /__rooms/_houses, PUT|DELETE /__rooms/_houses/<id>. */
 export async function handle(dir: string, req: IncomingMessage, res: ServerResponse) {
   const path = (req.url ?? '').split('?')[0].slice(ROUTE.length).replace(/^\/+|\/+$/g, '')
   try {
     if (!path) {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' })
       return send(res, 200, { location: displayDir(dir), docs: await listDocs(dir) })
+    }
+    if (path === '_houses') {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' })
+      return send(res, 200, { houses: await listHouses(dir) })
+    }
+    if (path.startsWith('_houses/')) {
+      const id = decodeURIComponent(path.slice('_houses/'.length))
+      if (!validId(id)) return send(res, 400, { error: 'bad house id' })
+      if (req.method === 'PUT') {
+        const house = JSON.parse(await readBody(req)) as DocLike
+        if (!house || house.id !== id || typeof house.name !== 'string') return send(res, 400, { error: 'not a house' })
+        await saveHouse(dir, house)
+        return send(res, 200, { ok: true })
+      }
+      if (req.method === 'DELETE') {
+        await removeHouse(dir, id)
+        return send(res, 200, { ok: true })
+      }
+      return send(res, 405, { error: 'method not allowed' })
     }
     if (path === '_backup') {
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' })

@@ -81,4 +81,22 @@ describe('rooms folder', () => {
     const list = (await (await fetch(base)).json()) as { docs: { id: string }[] }
     expect(list.docs.map((d) => d.id)).toEqual(['room-b'])
   })
+
+  it('keeps houses in Houses/, apart from the rooms', async () => {
+    await saveDoc(dir, doc('room-b', 'Study'))
+    const house = { id: 'house-home', name: 'Home', rooms: [{ roomId: 'room-b', x: 0, y: 0, rot: 0 }] }
+    expect((await fetch(`${base}/_houses/house-home`, { method: 'PUT', body: JSON.stringify(house) })).status).toBe(200)
+    expect(await readdir(join(dir, 'Houses'))).toEqual(['home--house-home.json'])
+    const houses = (await (await fetch(`${base}/_houses`)).json()) as { houses: { id: string }[] }
+    expect(houses.houses.map((h) => h.id)).toEqual(['house-home'])
+    // the room list is unaffected
+    const rooms = (await (await fetch(base)).json()) as { docs: { id: string }[] }
+    expect(rooms.docs.map((d) => d.id)).toEqual(['room-b'])
+    // backups take the house along
+    const b = (await (await fetch(`${base}/_backup`, { method: 'POST' })).json()) as { name: string }
+    expect(await readdir(join(dir, 'Backups', b.name, 'Houses'))).toEqual(['home--house-home.json'])
+    expect((await fetch(`${base}/_houses/house-home`, { method: 'DELETE' })).status).toBe(200)
+    expect(await readdir(join(dir, 'Houses'))).toEqual([])
+    expect((await fetch(`${base}/_houses/..%2Fx`, { method: 'PUT', body: '{}' })).status).toBe(400)
+  })
 })
