@@ -116,6 +116,8 @@ export function toUnitNumber(cm: number, unit: Unit = currentUnit()): number {
 export function parseLength(input: string, unit: Unit = currentUnit()): number | null {
   let s = input.trim().toLowerCase()
   if (!s) return null
+  // the app writes half inches as "½" (inchesText): read those, and quarters, as fractions
+  s = s.replace(/½/g, ' 1/2').replace(/¼/g, ' 1/4').replace(/¾/g, ' 3/4').trim()
   s = s.replace(/[′’]/g, "'").replace(/[″”]/g, '"').replace(/,/g, '.').replace(/\s+/g, ' ')
 
   const num = String.raw`(\d+(?:\.\d+)?(?:\s+\d+\/\d+)?|\d+\/\d+|\.\d+)`
@@ -165,20 +167,31 @@ export function parseLength(input: string, unit: Unit = currentUnit()): number |
 }
 
 /**
+ * The parts of a typed size, split at ×, x, X, * or "by" and tidied (curly foot and inch marks made
+ * straight), in order. No lookbehind here: older WebKit (macOS 12) cannot parse it and the whole
+ * app would fail to load. No length unit has an x in it, so splitting on x is safe.
+ */
+export function sizeParts(input: string): string[] {
+  return input.trim().toLowerCase()
+    .replace(/[′’]/g, "'").replace(/[″”]/g, '"')
+    .replace(/[×*]/g, 'x').replace(/(\d)\s*by\s*(?=\d)/g, '$1x').replace(/\bby\b/g, 'x')
+    .split('x').map((p) => p.trim()).filter(Boolean)
+}
+
+/**
  * Parse a size typed as "width × depth" or "width × depth × height": the parts separated by ×, x, *
  * or "by", each read like parseLength (so 41 x 39, 3' 5" × 3' 3" and 104 x 99 cm all work;
  * a unit written on the last part only applies to all of them). Null when it cannot be read.
  */
 export function parseSize(input: string, unit: Unit = currentUnit()): { w: number; d: number; h?: number } | null {
-  // every separator becomes an "x" (no length unit has an x in it, so splitting on x is safe);
-  // no lookbehind here: older WebKit (macOS 12) cannot parse it and the whole app would fail to load
-  const parts = input.trim().toLowerCase().replace(/[×*]/g, 'x').replace(/\bby\b/g, 'x').split('x').map((p) => p.trim()).filter(Boolean)
+  const parts = sizeParts(input)
   if (parts.length < 2 || parts.length > 3) return null
   // "104 x 99 cm": the last part's unit counts for the bare numbers before it
-  const trailing = parts[parts.length - 1].match(/(mm|cm|m|in|inch|inches|ft|feet|")$/)?.[1]
+  const trailing = parts[parts.length - 1].match(/(mm|cm|meters?|metres?|m|inches|inch|in|feet|foot|ft|'|")$/)?.[1]
   const read = (p: string) => {
-    const bare = /^\d+([.,]\d+)?$/.test(p)
-    return parseLength(bare && trailing ? `${p} ${trailing}` : p, unit)
+    // a plain number, with a decimal point or comma, a fraction ("6 1/2", "1/2") or a half ("39½")
+    const bare = /^\d+([.,]\d+)?(\s*(\d+\/\d+|[½¼¾]))?$|^(\d+\/\d+|[½¼¾])$/.test(p)
+    return parseLength(bare && trailing ? `${p}${trailing === "'" || trailing === '"' ? '' : ' '}${trailing}` : p, unit)
   }
   const [w, d, h] = parts.map(read)
   if (w === null || d === null || w <= 0 || d <= 0) return null

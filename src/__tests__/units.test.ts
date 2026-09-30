@@ -101,3 +101,36 @@ describe('parseSize', () => {
     expect(r('0 x 39')).toBeNull()
   })
 })
+
+describe('parseSize reads back what the app shows', () => {
+  it('every size the plan label or the edit box shows, in inches and in cm', async () => {
+    const { parseSize, formatSize, toUnitNumber } = await import('../units')
+    for (const unit of ['in', 'cm'] as const) {
+      for (let v = 5; v <= 600; v++) {
+        const w = v, d = 605 - v, h = (v % 200) + 1
+        // the label's text (half inches as ½)
+        const label = parseSize(formatSize(w, d, h, { unit, bare: true }), unit)
+        expect(label, `${unit} label ${w}×${d}×${h}`).not.toBeNull()
+        for (const [a, b] of [[label!.w, w], [label!.d, d], [label!.h!, h]]) expect(Math.abs(a - b)).toBeLessThanOrEqual(unit === 'in' ? 1.3 : 0.5)
+        // the edit box's text (41.5)
+        const box = parseSize([w, d, h].map((x) => String(toUnitNumber(x, unit))).join(' × '), unit)
+        expect(box, `${unit} box ${w}×${d}×${h}`).not.toBeNull()
+      }
+    }
+  })
+
+  it('carries a unit written on the last part to the bare numbers before it', async () => {
+    const { parseSize } = await import('../units')
+    const r = (s: string, u: 'in' | 'cm') => { const v = parseSize(s, u); return v && Object.values(v).map(Math.round) }
+    expect(r("3 x 4'", 'in')).toEqual([91, 122])
+    expect(r('3 x 4 foot', 'cm')).toEqual([91, 122])
+    expect(r('2 x 1.5 metres', 'cm')).toEqual([200, 150])
+    expect(r('2 x 1 meter', 'in')).toEqual([200, 100])
+    expect(r('41 x 39″', 'cm')).toEqual([104, 99])
+    expect(r('6 1/2 x 12 in', 'cm')).toEqual([17, 30])
+    expect(r('41½ x 39 in', 'cm')).toEqual([105, 99])
+    expect(r('40inx30in', 'cm')).toEqual([102, 76])
+    expect(r('100cmx50cm', 'in')).toEqual([100, 50])
+    expect(r('41by39', 'in')).toEqual([104, 99])
+  })
+})

@@ -4,7 +4,7 @@ import { closetClearanceDepth, closetInside, doorSwing, wallStripPolygon, edgeIn
 import { isRugKind } from '../placement'
 import { useStore } from '../store'
 import type { AnyWall, Closet, Door, Item, Room, Wall } from '../types'
-import { CM_PER_IN, formatLength, parseSize, useUnits } from '../units'
+import { CM_PER_IN, formatLength, parseSize, sizeParts, toUnitNumber, useUnits } from '../units'
 
 const M = 34 // margin around the room for labels (cm units in the viewBox)
 const PARK_H = 150
@@ -25,8 +25,8 @@ export function FloorPlan() {
   const svgRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null)
   /** the label being edited in place: a piece's name or its size (double-click either on the plan) */
-  const [editing, setEditing] = useState<{ itemId: string; field: LabelField; box: DOMRect } | null>(null)
-  const edit = (it: Item, field: LabelField, el: Element) => setEditing({ itemId: it.id, field, box: el.getBoundingClientRect() })
+  const [editing, setEditing] = useState<{ itemId: string; field: LabelField; el: Element } | null>(null)
+  const edit = (it: Item, field: LabelField, el: Element) => setEditing({ itemId: it.id, field, el })
 
   const toRoom = useCallback((e: React.PointerEvent) => {
     const svg = svgRef.current!
@@ -201,7 +201,7 @@ export function FloorPlan() {
     </svg>
     {editing && (() => {
       const it = items.find((x) => x.id === editing.itemId)
-      return it ? <LabelEditor item={it} field={editing.field} box={editing.box} onDone={() => setEditing(null)} /> : null
+      return it ? <LabelEditor item={it} field={editing.field} label={editing.el} onDone={() => setEditing(null)} /> : null
     })()}
     </>
   )
@@ -597,14 +597,22 @@ type LabelField = 'name' | 'size'
  * away saves, Esc cancels. A size is typed as width × depth, or width × depth × height, in any
  * unit (parseSize); one that cannot be read is shown in red and not saved.
  */
-function LabelEditor({ item, field, box, onDone }: { item: Item; field: LabelField; box: DOMRect; onDone: () => void }) {
+function LabelEditor({ item, field, label, onDone }: { item: Item; field: LabelField; label: Element; onDone: () => void }) {
   const unit = useUnits((s) => s.unit)
   const updateItem = useStore((s) => s.updateItem)
   const resizeItem = useStore((s) => s.resizeItem)
-  const initial = field === 'name'
-    ? item.name
-    : [item.w, item.d, item.h].map((v) => formatLength(v, { unit, bare: true })).join(' × ')
+  // the size as the box shows it: numbers parseSize reads back exactly (41.5, not 41½)
+  const shownParts = [item.w, item.d, item.h].map((v) => String(toUnitNumber(v, unit)))
+  const initial = field === 'name' ? item.name : shownParts.join(' × ')
   const [text, setText] = useState(initial)
+  // sit over the label, and follow it when the window resizes or the page scrolls
+  const [box, setBox] = useState(() => label.getBoundingClientRect())
+  useEffect(() => {
+    const follow = () => setBox(label.getBoundingClientRect())
+    window.addEventListener('resize', follow)
+    window.addEventListener('scroll', follow, true)
+    return () => { window.removeEventListener('resize', follow); window.removeEventListener('scroll', follow, true) }
+  }, [label])
   const [bad, setBad] = useState(false)
   const done = useRef(false)
   const input = useRef<HTMLInputElement>(null)
@@ -620,8 +628,14 @@ function LabelEditor({ item, field, box, onDone }: { item: Item; field: LabelFie
     const size = parseSize(text, unit)
     if (!size) return false
     const fit = (v: number, lo: number, hi: number) => Math.round(Math.min(hi, Math.max(lo, v)))
-    const next = { w: fit(size.w, 5, 600), d: fit(size.d, 5, 600), ...(size.h !== undefined ? { h: fit(size.h, 1, 400) } : {}) }
-    if (next.w !== item.w || next.d !== item.d || (next.h !== undefined && next.h !== item.h)) resizeItem(item.id, next)
+    // a part left as it was keeps its exact stored size (the box shows it rounded to the half inch)
+    const typed = sizeParts(text)
+    const same = (i: number) => typed[i] === shownParts[i]
+    const next: Partial<Pick<Item, 'w' | 'd' | 'h'>> = {}
+    if (!same(0)) next.w = fit(size.w, 5, 600)
+    if (!same(1)) next.d = fit(size.d, 5, 600)
+    if (size.h !== undefined && !same(2)) next.h = fit(size.h, 1, 400)
+    if ((next.w ?? item.w) !== item.w || (next.d ?? item.d) !== item.d || (next.h ?? item.h) !== item.h) resizeItem(item.id, next)
     return true
   }
   const finish = (keep: boolean) => {
@@ -643,8 +657,8 @@ function LabelEditor({ item, field, box, onDone }: { item: Item; field: LabelFie
       aria-label={field === 'name' ? `Name of ${item.name}` : `Size of ${item.name}, width × depth × height`}
       title={field === 'size' ? 'Width × depth, or width × depth × height, in any unit' : undefined}
       onChange={(e) => { setText(e.target.value); setBad(false) }}
+      // (no stopPropagation: ⌘S and ⌘P still reach the app; its other shortcuts ignore text boxes)
       onKeyDown={(e) => {
-        e.stopPropagation()
         if (e.key === 'Enter') finish(true)
         if (e.key === 'Escape') { done.current = true; onDone() }
       }}
