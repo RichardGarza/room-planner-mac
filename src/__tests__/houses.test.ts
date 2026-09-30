@@ -303,4 +303,24 @@ describe('houses', () => {
     await useHouses.getState().setLevel('room-bedroom-2', 0)
     expect(storage.houses.get(HOME_ID)!.rooms[1].level).toBeUndefined()
   })
+
+  it('resizes a hallway by one wall, saving the room and its place', async () => {
+    await useHouses.getState().refresh()
+    await useHouses.getState().open(HOME_ID)
+    const id = (await useHouses.getState().addHallway())!
+    const before = storage.houses.get(HOME_ID)!.rooms.find((p) => p.roomId === id)!
+    // the left wall out by 30: 150 wide, and the room's origin 30 further left on the plan
+    await useHouses.getState().resizeRoom(id, 'left', 30)
+    expect(storage.docs.get(id)!.room.w).toBe(150)
+    const after = storage.houses.get(HOME_ID)!.rooms.find((p) => p.roomId === id)!
+    expect(after.x).toBe(before.x - 30)
+    expect(after.y).toBe(before.y)
+    // the front wall in by 400: stops at the narrowest a room can be
+    await useHouses.getState().resizeRoom(id, 'bottom', -400)
+    expect(storage.docs.get(id)!.room.d).toBe(60)
+    // a drawn room is not resized this way
+    const b2 = storage.docs.get('room-bedroom-2')!
+    await useHouses.getState().resizeRoom('room-bedroom-2', 'right', 50)
+    expect(storage.docs.get('room-bedroom-2')).toEqual(b2)
+  })
 })

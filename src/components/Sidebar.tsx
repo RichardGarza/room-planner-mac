@@ -424,8 +424,8 @@ function RoomCard() {
             </div>
           ) : (
             <div className="dims-grid">
-              <label>Width<LengthInput value={room.w} min={150} max={1200} onCommit={(w) => setRoom({ w })} /></label>
-              <label>Depth<LengthInput value={room.d} min={150} max={1200} onCommit={(d) => setRoom({ d })} /></label>
+              <label>Width<LengthInput value={room.w} min={60} max={1200} onCommit={(w) => setRoom({ w })} /></label>
+              <label>Depth<LengthInput value={room.d} min={60} max={1200} onCommit={(d) => setRoom({ d })} /></label>
               <label>Ceiling height<LengthInput value={room.h} min={200} max={400} onCommit={(h) => setRoom({ h })} /></label>
             </div>
           )}

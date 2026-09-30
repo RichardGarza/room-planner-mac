@@ -273,8 +273,8 @@ function NewRoomPanel({ groups, onDone }: { groups: string[]; onDone: () => void
           </datalist>
         </label>
         <div className="dims-grid">
-          <label>Width<LengthInput min={150} max={1200} value={w} disabled={fixed} onCommit={commit(setW)} /></label>
-          <label>Depth<LengthInput min={150} max={1200} value={d} disabled={fixed} onCommit={commit(setD)} /></label>
+          <label>Width<LengthInput min={60} max={1200} value={w} disabled={fixed} onCommit={commit(setW)} /></label>
+          <label>Depth<LengthInput min={60} max={1200} value={d} disabled={fixed} onCommit={commit(setD)} /></label>
           <label>Ceiling height<LengthInput min={200} max={400} value={h} disabled={fixed} onCommit={commit(setH)} /></label>
         </div>
         <div className="lib-start-with" role="radiogroup" aria-labelledby="lib-start-with-label">

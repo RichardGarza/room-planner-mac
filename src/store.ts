@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { defaultItems, defaultRoom, presetLayouts } from './data'
 import { CLOSET_HEIGHT, clamp, distanceToWalls, edgeIndex, floorBounds, footprint, frontRecessPad, isRugKind, isSide, normalizeRot, pointInRoom, rectOf, roomWalls, wallFacing, wallFrame, wallLength, wallPoint, wallSpan } from './geometry'
 import { normalizeOutline, placeByPoints, withOutline } from './outline'
+import { MAX_ROOM, MIN_ROOM } from './resize'
 import { migrateRoom, nextOpeningId } from './migrate'
 import { suggestLayouts } from './suggest'
 import type { AnyWall, Closet, Door, Item, ItemPlacement, Layout, Opening, Radiator, Room, RoomDoc, Wall } from './types'
@@ -155,7 +156,7 @@ export function sanitizeRoom(room: Room): Room {
     r = { ...room, h, outline: pts, w: Math.max(...pts.map((p) => p[0])), d: Math.max(...pts.map((p) => p[1])) }
   } else {
     const { outline: _dropped, ...plain } = room
-    r = { ...plain, w: clamp(Math.round(room.w), 150, 1200), d: clamp(Math.round(room.d), 150, 1200), h }
+    r = { ...plain, w: clamp(Math.round(room.w), MIN_ROOM, MAX_ROOM), d: clamp(Math.round(room.d), MIN_ROOM, MAX_ROOM), h }
   }
   const walls = roomWalls(r)
   // every opening sits on a wall the room has: in a drawn room a side becomes the outline wall

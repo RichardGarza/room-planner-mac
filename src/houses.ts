@@ -4,7 +4,8 @@ import { HOUSE_VERSION, WALL_GAP, houseBounds, levelOf, migrateHouse, onLevel, r
 import { makeEmptyRoom } from './data'
 import { libraryStorage, newId, seedKey, useLibrary } from './library'
 import { migrateDoc } from './migrate'
-import type { Item, Room, RoomDoc } from './types'
+import { resizeRoom as resize } from './resize'
+import type { Item, Room, RoomDoc, Wall } from './types'
 
 /*
  * The houses in the library and the one on screen (the house map). A house only places rooms; the
@@ -38,6 +39,12 @@ interface HousesState {
   addRoom: (roomId: string, level?: number) => Promise<void>
   /** move a room to another floor, where it stands on the plan */
   setLevel: (roomId: string, level: number) => Promise<void>
+  /**
+   * Move one wall of a plain room out by `amount` cm (in when negative; see src/resize.ts): the
+   * room's file (its size, and its contents shifted when the back or left wall moves) is saved,
+   * then its place in the house. Everything but that wall stays where it is on the plan.
+   */
+  resizeRoom: (roomId: string, side: Wall, amount: number) => Promise<void>
   /** take a room out of the house (the room itself stays in the library) */
   removeRoom: (roomId: string) => Promise<void>
   /**
@@ -203,6 +210,28 @@ export const useHouses = create<HousesState>((set, get) => ({
       return level ? { ...rest, level } : rest
     }),
   })),
+
+  resizeRoom: async (roomId, side, amount) => {
+    const house = currentHouse()
+    const doc = get().rooms[roomId]
+    const place = house?.rooms.find((p) => p.roomId === roomId)
+    if (!house || !doc || !place) return
+    const r = resize(doc, place, side, amount)
+    if (!r.amount) return
+    const next: RoomDoc = { ...r.doc, updatedAt: new Date().toISOString() }
+    try {
+      const s = await libraryStorage()
+      await s.save(next)
+    } catch (e) {
+      set({ status: 'error', error: `Could not resize ${doc.name}: ${errorText(e)}` })
+      return
+    }
+    set({ rooms: { ...get().rooms, [roomId]: next } })
+    if (r.place.x !== place.x || r.place.y !== place.y) {
+      await update((h) => ({ ...h, rooms: h.rooms.map((p) => (p.roomId === roomId ? { ...p, x: r.place.x, y: r.place.y } : p)) }))
+    }
+    void useLibrary.getState().refresh()
+  },
 
   moveItem: async (fromRoomId, itemId, x, y, turn = 0) => {
     const house = currentHouse()

@@ -1,10 +1,11 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { polygonBounds } from '../geometry'
 import { runChecks } from '../checks'
-import { connections, floorsOverlap, houseBounds, itemAt, itemOnPlan, levelName, levels, onLevel, roomAt, roomOnPlan, snapPlacement, toHouse, type HouseDoc, type HouseRoom } from '../house'
+import { connections, floorsOverlap, houseBounds, itemAt, itemOnPlan, levelName, levels, onLevel, roomAt, roomOnPlan, snapPlacement, toHouse, toRoom, type HouseDoc, type HouseRoom } from '../house'
+import { canResize, outward, resizeRoom as resize, snapResize } from '../resize'
 import { useHouses } from '../houses'
 import { libraryStorage, useLibrary } from '../library'
-import type { Item, Room } from '../types'
+import type { Item, Room, RoomDoc, Wall } from '../types'
 import { formatRoomSize, useUnits } from '../units'
 import { RoomDrawing } from './PlanThumb'
 import './house.css'
@@ -31,6 +32,8 @@ type Press =
   | { kind: 'room'; px: number; py: number; start: HouseRoom; grab: [number, number]; moved: boolean }
   /** a piece of furniture: `grab` is the pointer's offset from its middle on the plan */
   | { kind: 'item'; px: number; py: number; roomId: string; item: Item; grab: [number, number]; moved: boolean }
+  /** a wall's handle of the selected room, being dragged to resize it */
+  | { kind: 'resize'; px: number; py: number; roomId: string; side: Wall; grab: [number, number]; start: HouseRoom; doc: RoomDoc; moved: boolean }
 
 /** A piece picked on the map: which room it is in and its id there. */
 interface Picked { roomId: string; itemId: string }
@@ -41,7 +44,7 @@ export function HouseMap() {
   const rooms = useHouses((s) => s.rooms)
   const status = useHouses((s) => s.status)
   const error = useHouses((s) => s.error)
-  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem, addHallway, exportHouse, setLevel: setRoomLevel } = useHouses.getState()
+  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem, addHallway, exportHouse, setLevel: setRoomLevel, resizeRoom } = useHouses.getState()
   const openRoom = useLibrary((s) => s.open)
   const library = useLibrary((s) => s.rooms)
   const unit = useUnits((s) => s.unit)
@@ -79,6 +82,8 @@ export function HouseMap() {
   const [dragging, setDragging] = useState<{ place: HouseRoom; snapped: { x: boolean; y: boolean } } | null>(null)
   /** the piece of furniture picked on the map (not while arranging) */
   const [picked, setPicked] = useState<Picked | null>(null)
+  /** the room being resized: how it would look with the wall where it is dragged to */
+  const [resizing, setResizing] = useState<{ roomId: string; side: Wall; doc: RoomDoc; place: HouseRoom; amount: number } | null>(null)
   /** the piece being dragged across the map: where its middle is */
   const [carrying, setCarrying] = useState<{ roomId: string; item: Item; x: number; y: number } | null>(null)
 
@@ -89,17 +94,44 @@ export function HouseMap() {
   // the floor on screen, as drawn: with the room being dragged where it would land
   const floor: HouseDoc | undefined = useMemo(() => (house ? onLevel(house, level) : undefined), [house, level])
   const shown: HouseDoc | undefined = useMemo(() => {
-    if (!floor || !dragging) return floor
-    return { ...floor, rooms: floor.rooms.map((p) => (p.roomId === dragging.place.roomId ? dragging.place : p)) }
-  }, [floor, dragging])
-
-  const fit = (): View => {
+    const moved = dragging?.place ?? resizing?.place
+    if (!floor || !moved) return floor
+    return { ...floor, rooms: floor.rooms.map((p) => (p.roomId === moved.roomId ? moved : p)) }
+  }, [floor, dragging, resizing])
+  // the rooms as drawn: the one being resized at its new size
+  const docs = resizing ? { ...rooms, [resizing.roomId]: resizing.doc } : rooms
+  function fit(): View {
     const b = floor ? houseBounds(floor, roomMap) : null
     if (!b) return { x: 0, y: 0, w: 1000, h: 700 }
     return { x: b.x0 - MARGIN, y: b.y0 - MARGIN, w: b.x1 - b.x0 + MARGIN * 2, h: b.y1 - b.y0 + MARGIN * 2 }
   }
   const [view, setView] = useState<View | null>(null)
   const v = view ?? fit()
+  /** The handle on each wall of the selected room (a plain one), in the room's own terms, sized to the view. */
+  const handleSize = v.w / 70
+  const handleOf = (room: Room, side: Wall) => {
+    const len = Math.min(handleSize * 3.5, (side === 'left' || side === 'right' ? room.d : room.w) * 0.5)
+    const t = handleSize
+    switch (side) {
+      case 'left': return { x: -t / 2, y: room.d / 2 - len / 2, w: t, h: len }
+      case 'right': return { x: room.w - t / 2, y: room.d / 2 - len / 2, w: t, h: len }
+      case 'top': return { x: room.w / 2 - len / 2, y: -t / 2, w: len, h: t }
+      case 'bottom': return { x: room.w / 2 - len / 2, y: room.d - t / 2, w: len, h: t }
+    }
+  }
+  const SIDES: Wall[] = ['left', 'right', 'top', 'bottom']
+  /** The handle of the selected room under a plan point, if any (a little larger than drawn, to be easy to catch). */
+  const handleAt = (at: [number, number]): { place: HouseRoom; side: Wall } | null => {
+    if (!arranging || !selected || !floor) return null
+    const place = floor.rooms.find((p) => p.roomId === selected)
+    const doc = rooms[selected]
+    if (!place || !doc || !canResize(doc.room)) return null
+    const [lx, ly] = toRoom(place, at)
+    const pad = handleSize * 0.6
+    const side = SIDES.find((sd) => { const h = handleOf(doc.room, sd); return lx > h.x - pad && lx < h.x + h.w + pad && ly > h.y - pad && ly < h.y + h.h + pad })
+    return side ? { place, side } : null
+  }
+
   // another house, or its rooms loaded: fit them (not while arranging, or the map would jump with every move)
   const fitKey = `${houseId}|${level}|${Object.keys(rooms).sort().join()}`
   useEffect(() => { setView(null) }, [fitKey])
@@ -119,6 +151,13 @@ export function HouseMap() {
   const onDown = (e: React.PointerEvent) => {
     if (!floor) return
     const at = toPlan(e.clientX, e.clientY)
+    // a wall handle of the selected room: resizing it
+    const grip = handleAt(at)
+    if (grip) {
+      press.current = { kind: 'resize', px: e.clientX, py: e.clientY, roomId: grip.place.roomId, side: grip.side, grab: at, start: grip.place, doc: rooms[grip.place.roomId], moved: false }
+      ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+      return
+    }
     const hit = arranging ? roomAt(floor, roomMap, at) : null
     // a piece of furniture (not while arranging): picked up, unless it is locked
     const piece = arranging ? null : itemAt(floor, rooms, at)
@@ -141,6 +180,13 @@ export function HouseMap() {
     if (p.kind === 'pan') {
       const k = scale()
       setView({ ...p.view, x: p.view.x - (e.clientX - p.px) * k, y: p.view.y - (e.clientY - p.py) * k })
+    } else if (p.kind === 'resize') {
+      const at = toPlan(e.clientX, e.clientY)
+      const out = outward(p.start, p.side)
+      const raw = (at[0] - p.grab[0]) * out[0] + (at[1] - p.grab[1]) * out[1]
+      const amount = e.altKey ? raw : snapResize(floor, roomMap, p.start, p.doc.room, p.side, raw)
+      const r = resize(p.doc, p.start, p.side, amount)
+      setResizing({ roomId: p.roomId, side: p.side, doc: r.doc, place: r.place, amount: r.amount })
     } else if (p.kind === 'item') {
       const at = toPlan(e.clientX, e.clientY)
       setCarrying({ roomId: p.roomId, item: p.item, x: at[0] - p.grab[0], y: at[1] - p.grab[1] })
@@ -161,6 +207,12 @@ export function HouseMap() {
       return
     }
     setDragging(null)
+    if (p.kind === 'resize') {
+      const done = resizing
+      if (p.moved && done && done.amount) void resizeRoom(done.roomId, done.side, done.amount).then(() => setResizing(null))
+      else setResizing(null)
+      return
+    }
     if (p.kind === 'item' && p.moved && carrying) {
       const drop = carrying
       void moveItem(drop.roomId, drop.item.id, drop.x, drop.y).then((landed) => {
@@ -238,14 +290,14 @@ export function HouseMap() {
   if (!house || !shown) return null
   const missing = house.rooms.filter((p) => !rooms[p.roomId])
   const loading = status === 'loading' && !Object.keys(rooms).length
-  const outlines = new Map(shown.rooms.filter((p) => rooms[p.roomId]).map((p) => [p.roomId, roomOnPlan(rooms[p.roomId].room, p)]))
+  const outlines = new Map(shown.rooms.filter((p) => docs[p.roomId]).map((p) => [p.roomId, roomOnPlan(docs[p.roomId].room, p)]))
   const overlapping = new Set<string>()
   const ids = [...outlines.keys()]
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
     if (floorsOverlap(outlines.get(ids[i])!, outlines.get(ids[j])!)) { overlapping.add(ids[i]); overlapping.add(ids[j]) }
   }
   // doors that meet across a shared wall: drawn as a passage through the wall
-  const links = connections(shown, rooms)
+  const links = connections(shown, docs)
   const addable = library.filter((r) => !house.rooms.some((p) => p.roomId === r.id))
   const selectedName = selected ? rooms[selected]?.name : null
   // what the picked piece gets wrong where it stands now (the planner's own checks)
@@ -263,7 +315,7 @@ export function HouseMap() {
             {in3d
               ? 'Drag to look around, scroll to zoom, click a room to open it.'
               : arranging
-              ? 'Drag a room to move it: its walls snap to the rooms around it (hold ⌥ to place it freely). Click a room to select it, R turns it.'
+              ? 'Drag a room to move it: its walls snap to the rooms around it (hold ⌥ to place it freely). Click a room to select it: R turns it, and a plain room\'s handles resize it.'
               : `${house.rooms.length} room${house.rooms.length === 1 ? '' : 's'}${links.length ? ` · ${links.length} connected door${links.length === 1 ? '' : 's'}` : ''} · click a room to open it · scroll to zoom, drag to move around`}
           </span>
         </div>
@@ -286,7 +338,12 @@ export function HouseMap() {
             <button className="chip ghost" onClick={() => setView(null)} title="Show the whole house">Fit</button>
             <button className="chip ghost" onClick={() => void exportHouse(house.id)} title="Save the house and all its rooms (layouts too) as one file, to back up or open on another computer">Export</button>
             <button className="chip ghost" onClick={() => void savePdf()} disabled={printing} title="The whole house on one page, as a PDF">{printing ? 'Saving…' : 'Save as PDF'}</button>
-            <button className={arranging ? 'chip solid' : 'chip'} aria-pressed={arranging} onClick={() => { setArranging(!arranging); setSelected(null) }}>
+            <button className={arranging ? 'chip solid' : 'chip'} aria-pressed={arranging} onClick={() => {
+              // while arranging the view holds still (it would follow the house's size as rooms move and grow)
+              if (!arranging && !view) setView(fit())
+              setArranging(!arranging)
+              setSelected(null)
+            }}>
               {arranging ? 'Done arranging' : 'Arrange rooms'}
             </button>
           </>
@@ -366,7 +423,7 @@ export function HouseMap() {
       >
         {loading && <text x={v.x + v.w / 2} y={v.y + v.h / 2} className="house-loading" textAnchor="middle">Loading the rooms…</text>}
         {shown.rooms.map((p) => {
-          const doc = rooms[p.roomId]
+          const doc = docs[p.roomId]
           if (!doc) return null
           const cls = ['house-room', hover === p.roomId && 'hover', selected === p.roomId && 'selected', dragging?.place.roomId === p.roomId && 'dragging', overlapping.has(p.roomId) && 'overlap'].filter(Boolean).join(' ')
           return (
@@ -407,9 +464,23 @@ export function HouseMap() {
           const over = roomAt(floor!, roomMap, [carrying.x, carrying.y])
           return <polygon className={over ? 'house-carried' : 'house-carried nowhere'} points={pts.map((q) => q.join(',')).join(' ')} fill={carrying.item.color} />
         })()}
+        {/* the selected room's wall handles: drag one to move that wall (plain rooms only) */}
+        {arranging && selected && (() => {
+          const place = shown.rooms.find((r) => r.roomId === selected)
+          const doc = docs[selected]
+          if (!place || !doc || !canResize(doc.room)) return null
+          return (
+            <g transform={`translate(${place.x} ${place.y}) rotate(${place.rot})`} className="house-handles" pointerEvents="none">
+              {SIDES.map((sd) => {
+                const h = handleOf(doc.room, sd)
+                return <rect key={sd} className={resizing?.side === sd ? 'house-handle on' : 'house-handle'} x={h.x} y={h.y} width={h.w} height={h.h} rx={handleSize / 2} />
+              })}
+            </g>
+          )
+        })()}
         {/* names on top, the right way up whatever the room's turn */}
         {shown.rooms.map((p) => {
-          const doc = rooms[p.roomId]
+          const doc = docs[p.roomId]
           if (!doc) return null
           const b = polygonBounds(outlines.get(p.roomId)!)
           const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2
