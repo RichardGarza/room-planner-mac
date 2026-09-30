@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { polygonBounds } from '../geometry'
-import { floorsOverlap, houseBounds, roomAt, roomOnPlan, snapPlacement, type HouseDoc, type HouseRoom } from '../house'
+import { runChecks } from '../checks'
+import { floorsOverlap, houseBounds, itemAt, itemOnPlan, roomAt, roomOnPlan, snapPlacement, toHouse, type HouseDoc, type HouseRoom } from '../house'
 import { useHouses } from '../houses'
 import { useLibrary } from '../library'
-import type { Room } from '../types'
+import type { Item, Room } from '../types'
 import { formatRoomSize, useUnits } from '../units'
 import { RoomDrawing } from './PlanThumb'
 import './house.css'
@@ -11,6 +12,7 @@ import './house.css'
 /*
  * The house map: every room of the house at its place, with its furniture. Scroll to zoom, drag to
  * move around, click a room to open it in the planner (the planner's back button comes back here).
+ * Drag a piece of furniture to move it, into another room too; click one to pick it (R turns it).
  *
  * "Arrange rooms" switches to arranging: drag a room to move it (its walls snap to the walls of the
  * rooms around it, a wall's thickness apart), click one to select it, turn it with R or the button,
@@ -24,6 +26,11 @@ interface View { x: number; y: number; w: number; h: number }
 type Press =
   | { kind: 'pan'; px: number; py: number; view: View; moved: boolean }
   | { kind: 'room'; px: number; py: number; start: HouseRoom; grab: [number, number]; moved: boolean }
+  /** a piece of furniture: `grab` is the pointer's offset from its middle on the plan */
+  | { kind: 'item'; px: number; py: number; roomId: string; item: Item; grab: [number, number]; moved: boolean }
+
+/** A piece picked on the map: which room it is in and its id there. */
+interface Picked { roomId: string; itemId: string }
 
 export function HouseMap() {
   const houseId = useHouses((s) => s.currentId)
@@ -31,7 +38,7 @@ export function HouseMap() {
   const rooms = useHouses((s) => s.rooms)
   const status = useHouses((s) => s.status)
   const error = useHouses((s) => s.error)
-  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom } = useHouses.getState()
+  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem } = useHouses.getState()
   const openRoom = useLibrary((s) => s.open)
   const library = useLibrary((s) => s.rooms)
   const unit = useUnits((s) => s.unit)
@@ -41,6 +48,10 @@ export function HouseMap() {
   const [selected, setSelected] = useState<string | null>(null)
   /** the room being dragged, where it would land (snapped) */
   const [dragging, setDragging] = useState<{ place: HouseRoom; snapped: { x: boolean; y: boolean } } | null>(null)
+  /** the piece of furniture picked on the map (not while arranging) */
+  const [picked, setPicked] = useState<Picked | null>(null)
+  /** the piece being dragged across the map: where its middle is */
+  const [carrying, setCarrying] = useState<{ roomId: string; item: Item; x: number; y: number } | null>(null)
 
   // (re)load the rooms each time the map shows: they may have changed in the planner
   useEffect(() => { if (houseId) void openHouse(houseId) }, [houseId, openHouse])
@@ -79,9 +90,17 @@ export function HouseMap() {
     if (!house) return
     const at = toPlan(e.clientX, e.clientY)
     const hit = arranging ? roomAt(house, roomMap, at) : null
-    press.current = hit
-      ? { kind: 'room', px: e.clientX, py: e.clientY, start: hit, grab: at, moved: false }
-      : { kind: 'pan', px: e.clientX, py: e.clientY, view: v, moved: false }
+    // a piece of furniture (not while arranging): picked up, unless it is locked
+    const piece = arranging ? null : itemAt(house, rooms, at)
+    const place = piece && house.rooms.find((r) => r.roomId === piece.roomId)
+    if (piece && place && !piece.item.locked) {
+      const [cx, cy] = toHouse(place, [piece.item.x, piece.item.y])
+      press.current = { kind: 'item', px: e.clientX, py: e.clientY, roomId: piece.roomId, item: piece.item, grab: [at[0] - cx, at[1] - cy], moved: false }
+    } else {
+      press.current = hit
+        ? { kind: 'room', px: e.clientX, py: e.clientY, start: hit, grab: at, moved: false }
+        : { kind: 'pan', px: e.clientX, py: e.clientY, view: v, moved: false }
+    }
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
   }
   const onMove = (e: React.PointerEvent) => {
@@ -92,6 +111,9 @@ export function HouseMap() {
     if (p.kind === 'pan') {
       const k = scale()
       setView({ ...p.view, x: p.view.x - (e.clientX - p.px) * k, y: p.view.y - (e.clientY - p.py) * k })
+    } else if (p.kind === 'item') {
+      const at = toPlan(e.clientX, e.clientY)
+      setCarrying({ roomId: p.roomId, item: p.item, x: at[0] - p.grab[0], y: at[1] - p.grab[1] })
     } else {
       const at = toPlan(e.clientX, e.clientY)
       const moved: HouseRoom = { ...p.start, x: p.start.x + at[0] - p.grab[0], y: p.start.y + at[1] - p.grab[1] }
@@ -109,10 +131,24 @@ export function HouseMap() {
       return
     }
     setDragging(null)
+    if (p.kind === 'item' && p.moved && carrying) {
+      const drop = carrying
+      void moveItem(drop.roomId, drop.item.id, drop.x, drop.y).then((landed) => {
+        setCarrying(null)
+        setPicked(landed ?? { roomId: drop.roomId, itemId: drop.item.id })
+      })
+      return
+    }
+    setCarrying(null)
     if (p.moved) return
-    const hit = roomAt(house, roomMap, toPlan(e.clientX, e.clientY))
-    if (arranging) setSelected(hit?.roomId ?? null)
-    else if (hit) void openRoom(hit.roomId)
+    const at = toPlan(e.clientX, e.clientY)
+    if (arranging) return setSelected(roomAt(house, roomMap, at)?.roomId ?? null)
+    // a click on a piece picks it; on a room's floor opens the room; on nothing lets go
+    const piece = itemAt(house, rooms, at)
+    if (piece) return setPicked({ roomId: piece.roomId, itemId: piece.item.id })
+    const hit = roomAt(house, roomMap, at)
+    if (hit) void openRoom(hit.roomId)
+    else setPicked(null)
   }
 
   // scroll to zoom about the pointer
@@ -149,6 +185,26 @@ export function HouseMap() {
     return () => window.removeEventListener('keydown', onKey)
   }, [arranging, selected, turnRoom])
 
+  // the picked piece: R turns it a quarter where it stands (⇧R the other way), Esc lets go
+  const pickedDoc = picked ? rooms[picked.roomId] : undefined
+  const pickedItem = pickedDoc?.items.find((i) => i.id === picked!.itemId)
+  const turnPicked = (deg: number) => {
+    const place = house?.rooms.find((r) => r.roomId === picked?.roomId)
+    if (!picked || !pickedItem || !place || pickedItem.locked) return
+    const [cx, cy] = toHouse(place, [pickedItem.x, pickedItem.y])
+    void moveItem(picked.roomId, pickedItem.id, cx, cy, deg)
+  }
+  useEffect(() => {
+    if (arranging || !picked) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); turnPicked(e.shiftKey ? -90 : 90) }
+      if (e.key === 'Escape') setPicked(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   if (!house || !shown) return null
   const missing = house.rooms.filter((p) => !rooms[p.roomId])
   const loading = status === 'loading' && !Object.keys(rooms).length
@@ -160,6 +216,10 @@ export function HouseMap() {
   }
   const addable = library.filter((r) => !house.rooms.some((p) => p.roomId === r.id))
   const selectedName = selected ? rooms[selected]?.name : null
+  // what the picked piece gets wrong where it stands now (the planner's own checks)
+  const problems = pickedDoc && pickedItem
+    ? runChecks(pickedDoc.room, pickedDoc.items).filter((c) => c.level !== 'ok' && c.itemIds.includes(pickedItem.id))
+    : []
 
   return (
     <div className={arranging ? 'house arranging' : 'house'}>
@@ -199,6 +259,18 @@ export function HouseMap() {
           )}
         </div>
       )}
+      {!arranging && pickedItem && pickedDoc && (
+        <div className="house-tools" role="toolbar" aria-label="Picked piece">
+          <strong>{pickedItem.name}</strong>
+          <span className="muted small">in {pickedDoc.name}{pickedItem.locked ? ' · locked' : ''}</span>
+          {!pickedItem.locked && <button className="chip" onClick={() => turnPicked(90)} title="A quarter turn clockwise (R; ⇧R the other way)">↻ Turn 90°</button>}
+          <button className="chip ghost" onClick={() => void openRoom(picked!.roomId)}>Open {pickedDoc.name}</button>
+          <span className="house-tools-gap" />
+          {problems.length
+            ? <span className={problems.some((c) => c.level === 'bad') ? 'house-problem bad' : 'house-problem'}>{problems[0].text}{problems.length > 1 ? ` (and ${problems.length - 1} more)` : ''}</span>
+            : <span className="house-problem ok">Fits here</span>}
+        </div>
+      )}
       {error && <div className="lib-error" role="alert"><span>{error}</span></div>}
       {missing.length > 0 && !loading && (
         <p className="house-note muted small">{missing.length} room{missing.length === 1 ? '' : 's'} of this house {missing.length === 1 ? 'is' : 'are'} not in your rooms folder any more.</p>
@@ -212,6 +284,8 @@ export function HouseMap() {
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
+        // a mouse press does not move the keyboard focus to a room (its focus ring is for Tab)
+        onMouseDown={(e) => e.preventDefault()}
         role="img"
         aria-label={`Map of ${house.name}`}
       >
@@ -231,13 +305,27 @@ export function HouseMap() {
                 else void openRoom(p.roomId)
               }}>
               <g transform={`translate(${p.x} ${p.y}) rotate(${p.rot})`}>
-                <RoomDrawing room={doc.room} items={doc.items} />
+                {/* the piece being carried is drawn at the pointer instead */}
+                <RoomDrawing room={doc.room} items={carrying && carrying.roomId === p.roomId ? doc.items.filter((i) => i.id !== carrying.item.id) : doc.items} />
               </g>
               {/* the hover, selection and click target: the room's floor */}
               <polygon className="house-hit" points={outlines.get(p.roomId)!.map((q) => q.join(',')).join(' ')} />
             </g>
           )
         })}
+        {/* the picked piece's outline, and the piece being carried */}
+        {pickedItem && !carrying && (() => {
+          const place = shown.rooms.find((r) => r.roomId === picked!.roomId)
+          return place ? <polygon className="house-picked" points={itemOnPlan(pickedItem, place).map((q) => q.join(',')).join(' ')} /> : null
+        })()}
+        {carrying && (() => {
+          const place = shown.rooms.find((r) => r.roomId === carrying.roomId)
+          if (!place) return null
+          const [cx, cy] = toHouse(place, [carrying.item.x, carrying.item.y])
+          const pts = itemOnPlan(carrying.item, place).map(([x, y]) => [x - cx + carrying.x, y - cy + carrying.y])
+          const over = roomAt(house, roomMap, [carrying.x, carrying.y])
+          return <polygon className={over ? 'house-carried' : 'house-carried nowhere'} points={pts.map((q) => q.join(',')).join(' ')} fill={carrying.item.color} />
+        })()}
         {/* names on top, the right way up whatever the room's turn */}
         {shown.rooms.map((p) => {
           const doc = rooms[p.roomId]

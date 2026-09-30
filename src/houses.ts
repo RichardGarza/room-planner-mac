@@ -41,9 +41,10 @@ interface HousesState {
    * Move a piece of furniture on the house plan: its middle to house point (x, y), turned `turn`
    * degrees more (clockwise). Dropped in its own room it just moves; dropped in another room it moves
    * into that room's file (written there before it leaves the first, so a failed save can only ever
-   * leave two, never none). Outside every room nothing changes. Returns the room it ended up in.
+   * leave two, never none). Outside every room nothing changes. Returns the room it ended up in and
+   * its id there (new when that room already had one like it), or null.
    */
-  moveItem: (fromRoomId: string, itemId: string, x: number, y: number, turn?: number) => Promise<string | null>
+  moveItem: (fromRoomId: string, itemId: string, x: number, y: number, turn?: number) => Promise<{ roomId: string; itemId: string } | null>
 }
 
 function flagGet(key: string) {
@@ -180,6 +181,7 @@ export const useHouses = create<HousesState>((set, get) => ({
     const rot = normalizeRot(item.rot + fromPlace.rot - target.rot + turn)
     const s = await libraryStorage()
     const ts = new Date().toISOString()
+    let landedId = itemId
     try {
       if (target.roomId === fromRoomId) {
         const next: RoomDoc = { ...from, updatedAt: ts, items: from.items.map((i) => (i.id === itemId ? { ...i, x: Math.round(lx), y: Math.round(ly), rot } : i)) }
@@ -190,6 +192,7 @@ export const useHouses = create<HousesState>((set, get) => ({
         const taken = new Set(to.items.map((i) => i.id))
         let id = item.id
         while (taken.has(id)) id = `${item.kind}-${Math.random().toString(36).slice(2, 8)}`
+        landedId = id
         const moved: Item = { ...item, id, x: Math.round(lx), y: Math.round(ly), rot, inRoom: true }
         const nextTo: RoomDoc = { ...to, updatedAt: ts, items: [...to.items, moved] }
         const nextFrom: RoomDoc = { ...from, updatedAt: ts, items: from.items.filter((i) => i.id !== itemId) }
@@ -202,7 +205,7 @@ export const useHouses = create<HousesState>((set, get) => ({
       return null
     }
     void useLibrary.getState().refresh()
-    return target.roomId
+    return { roomId: target.roomId, itemId: landedId }
   },
 
   removeRoom: async (roomId) => {

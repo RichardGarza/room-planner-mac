@@ -156,7 +156,7 @@ describe('houses', () => {
       const b2box = polygonBounds(roomOnPlan(storage.docs.get('room-bedroom-2')!.room, b2))
       const [mx, my] = middleOf(b2box)
       const landed = await useHouses.getState().moveItem('room-forest', 'forest-dresser', mx, my)
-      expect(landed).toBe('room-bedroom-2')
+      expect(landed).toEqual({ roomId: 'room-bedroom-2', itemId: 'forest-dresser' })
       expect(order).toEqual(['room-bedroom-2', 'room-forest'])
       expect(storage.docs.get('room-forest')!.items.some((i) => i.id === 'forest-dresser')).toBe(false)
       const after = planOf('room-bedroom-2', 'forest-dresser')
@@ -171,7 +171,7 @@ describe('houses', () => {
       const house = useHouses.getState().houses[0]
       const box = polygonBounds(roomOnPlan(storage.docs.get('room-forest')!.room, house.rooms[0]))
       const x = box.x0 + 150, y = box.y0 + 150
-      expect(await useHouses.getState().moveItem('room-forest', 'forest-side', x, y)).toBe('room-forest')
+      expect(await useHouses.getState().moveItem('room-forest', 'forest-side', x, y)).toEqual({ roomId: 'room-forest', itemId: 'forest-side' })
       const side = storage.docs.get('room-forest')!.items.find((i) => i.id === 'forest-side')!
       expect(side.x).toBe(Math.round(x - house.rooms[0].x))
       expect(side.y).toBe(Math.round(y - house.rooms[0].y))
@@ -195,8 +195,9 @@ describe('houses', () => {
       await useHouses.getState().open(HOME_ID)
       const house = useHouses.getState().houses[0]
       const [mx, my] = middleOf(polygonBounds(roomOnPlan(storage.docs.get('room-bedroom-2')!.room, house.rooms[1])))
-      await useHouses.getState().moveItem('room-forest', 'forest-side', mx, my)
+      const landed = await useHouses.getState().moveItem('room-forest', 'forest-side', mx, my)
       const ids = storage.docs.get('room-bedroom-2')!.items.map((i) => i.id)
+      expect(landed?.itemId).toMatch(/^nightstand-/)
       expect(new Set(ids).size).toBe(ids.length)
       expect(ids.filter((i) => i.startsWith('nightstand-'))).toHaveLength(1)
     })

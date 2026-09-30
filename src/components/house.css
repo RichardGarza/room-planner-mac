@@ -35,3 +35,11 @@
 .house-room.dragging { opacity: 0.85; }
 .house-room.overlap .house-hit { fill: rgba(217, 83, 79, 0.12); stroke: var(--bad); stroke-width: 8; }
 .house-note.warn { color: var(--bad); font-weight: 700; }
+
+/* furniture on the map */
+.house-picked { fill: none; stroke: #f28c28; stroke-width: 4; stroke-dasharray: 8 5; pointer-events: none; }
+.house-carried { stroke: #f28c28; stroke-width: 3; opacity: 0.85; pointer-events: none; }
+.house-carried.nowhere { opacity: 0.4; stroke: var(--bad); stroke-dasharray: 6 4; }
+.house-problem { font-size: 12px; font-weight: 800; color: var(--warn); }
+.house-problem.bad { color: var(--bad); }
+.house-problem.ok { color: var(--ok); }
