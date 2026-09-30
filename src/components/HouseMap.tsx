@@ -41,7 +41,7 @@ export function HouseMap() {
   const rooms = useHouses((s) => s.rooms)
   const status = useHouses((s) => s.status)
   const error = useHouses((s) => s.error)
-  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem } = useHouses.getState()
+  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem, addHallway } = useHouses.getState()
   const openRoom = useLibrary((s) => s.open)
   const library = useLibrary((s) => s.rooms)
   const unit = useUnits((s) => s.unit)
@@ -268,6 +268,7 @@ export function HouseMap() {
             </>
           ) : <span className="muted small">Select a room to turn it or take it out.</span>}
           <span className="house-tools-gap" />
+          <button className="chip ghost" onClick={() => void addHallway().then((id) => id && setSelected(id))} title="A new empty room for a hallway or open area, placed next to the house">+ Add a hallway</button>
           {addable.length > 0 && (
             <label className="house-add">
               Add a room

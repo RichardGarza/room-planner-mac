@@ -230,4 +230,19 @@ describe('houses', () => {
     expect(-Math.sin(st.walkPose.yaw)).toBeCloseTo(1)
     await useLibrary.getState().close()
   })
+
+  it('adds a hallway: a new empty room, saved with the others and placed in the house', async () => {
+    await useHouses.getState().refresh()
+    await useHouses.getState().open(HOME_ID)
+    const id = (await useHouses.getState().addHallway())!
+    const doc = storage.docs.get(id)!
+    expect(doc.name).toBe('Hallway')
+    expect(doc.items).toEqual([])
+    expect(doc.room.windows).toEqual([])
+    expect(doc.room.doors).toHaveLength(1)
+    expect(storage.houses.get(HOME_ID)!.rooms.map((p) => p.roomId)).toContain(id)
+    // a second one gets its own name
+    const id2 = (await useHouses.getState().addHallway())!
+    expect(storage.docs.get(id2)!.name).toBe('Hallway 2')
+  })
 })

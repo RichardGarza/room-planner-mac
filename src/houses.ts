@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { floorBounds, normalizeRot, polygonBounds } from './geometry'
 import { HOUSE_VERSION, WALL_GAP, houseBounds, roomAt, roomOnPlan, toRoom, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
-import { libraryStorage, seedKey, useLibrary } from './library'
+import { makeEmptyRoom } from './data'
+import { libraryStorage, newId, seedKey, useLibrary } from './library'
 import { migrateDoc } from './migrate'
 import type { Item, Room, RoomDoc } from './types'
 
@@ -45,6 +46,11 @@ interface HousesState {
    * its id there (new when that room already had one like it), or null.
    */
   moveItem: (fromRoomId: string, itemId: string, x: number, y: number, turn?: number) => Promise<{ roomId: string; itemId: string } | null>
+  /**
+   * A new empty room for a hallway or an open area (120 × 300 cm, one door, no window), saved with
+   * the other rooms and added to the house; returns its id.
+   */
+  addHallway: () => Promise<string | null>
 }
 
 function flagGet(key: string) {
@@ -206,6 +212,32 @@ export const useHouses = create<HousesState>((set, get) => ({
     }
     void useLibrary.getState().refresh()
     return { roomId: target.roomId, itemId: landedId }
+  },
+
+  addHallway: async () => {
+    const house = currentHouse()
+    if (!house) return null
+    const taken = new Set(useLibrary.getState().rooms.map((r) => r.name))
+    let name = 'Hallway'
+    for (let i = 2; taken.has(name); i++) name = `Hallway ${i}`
+    const ts = new Date().toISOString()
+    const shell = makeEmptyRoom(name, 120, 300)
+    const doc = migrateDoc({
+      id: newId(), name, group: house.name, notes: 'A hallway or open area of the house: add its doors where the rooms meet it.',
+      createdAt: ts, updatedAt: ts, items: [], layouts: [],
+      room: { ...shell, windows: [], doors: shell.doors.map((d) => ({ ...d, offset: 20 })) },
+    })
+    if (!doc) return null
+    try {
+      const s = await libraryStorage()
+      await s.save(doc)
+    } catch (e) {
+      set({ status: 'error', error: `Could not make the hallway: ${errorText(e)}` })
+      return null
+    }
+    await useLibrary.getState().refresh()
+    await get().addRoom(doc.id)
+    return doc.id
   },
 
   removeRoom: async (roomId) => {
