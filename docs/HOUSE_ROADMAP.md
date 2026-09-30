@@ -94,6 +94,6 @@ plan) and moved by `(x, y)`. Two rooms that share a wall stand a wall's thicknes
 - [x] Sprint 1: the house on a map. "Your house" on the start screen opens the map of "Home" (Forest's Room and Bedroom 2 side by side); scroll to zoom, drag to move, click a room to open it, "‹ Home" goes back. Houses are saved in `Houses/` and backed up.
 - [x] Sprint 2: arranging. "Arrange rooms" on the map: drag rooms (walls snap a wall's thickness apart, outside walls line up; ⌥ places freely), select one to turn it (R) or take it out, add rooms from the library; overlapping rooms show in red. Saved on every change.
 - [x] Sprint 3: furniture across rooms. On the map, drag a piece into another room (or around its own); it keeps its look on the plan, is written into the new room before it leaves the old one, and snaps back when dropped outside every room. Click a piece to pick it: R turns it, the toolbar shows what it gets wrong where it stands, and opens its room. Locked pieces stay put.
-- [ ] Sprint 4
+- [x] Sprint 4: the house in 3D, as a mass model. "3D" on the house map shows every room at its place: floors, walls with door and window gaps (cut away at waist height, or full height), closets, and furniture as blocks of its size and colour. Orbit and zoom; hover lights a room up, a click opens it. (Instead of hiding the walls toward the camera, the walls are cut away; the model is light enough that no quality switching is needed. The detailed 3D of a room is one click away.)
 - [ ] Sprint 5
 - [ ] Sprint 6

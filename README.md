@@ -4,7 +4,7 @@ Will the new bed fit? Room Planner is a small app for trying furniture layouts i
 
 It runs in the browser and as a native Mac app. This repository is the Mac and web edition; the Windows version lives in its own repository.
 
-**The house view (in progress).** Your rooms fit together into one house. "Your house" on the start screen opens a map of the whole home, every room at its place with its furniture: scroll to zoom, drag to move around, click a room to open it, and the back button returns to the map. "Arrange rooms" lets you drag rooms into place (their walls snap together a wall's thickness apart), turn them, and add or take out rooms. Drag a piece of furniture from one room into another right on the map (it moves between the room files), or click one to turn it and see what it gets wrong where it stands. Houses are saved in `~/Documents/Room Planner/Houses/` next to the rooms and backed up with them; a house only places rooms, so your rooms and layouts stay exactly as they are. A 3D house is next: see [docs/HOUSE_ROADMAP.md](docs/HOUSE_ROADMAP.md).
+**The house view (in progress).** Your rooms fit together into one house. "Your house" on the start screen opens a map of the whole home, every room at its place with its furniture: scroll to zoom, drag to move around, click a room to open it, and the back button returns to the map. "Arrange rooms" lets you drag rooms into place (their walls snap together a wall's thickness apart), turn them, and add or take out rooms. Drag a piece of furniture from one room into another right on the map (it moves between the room files), or click one to turn it and see what it gets wrong where it stands. "3D" shows the whole house as a mass model (walls cut away so you look in, furniture as blocks); click a room to jump into it. Houses are saved in `~/Documents/Room Planner/Houses/` next to the rooms and backed up with them; a house only places rooms, so your rooms and layouts stay exactly as they are. Connected doors and walking between rooms are next: see [docs/HOUSE_ROADMAP.md](docs/HOUSE_ROADMAP.md).
 
 ## What it does
 
@@ -107,6 +107,7 @@ Vite, React 19, TypeScript, Three.js via react-three-fiber and drei, zustand for
 | `src/house.ts` | Houses: where each room sits, room ↔ house coordinates |
 | `src/houses.ts` | The houses in the library, the seed house "Home", the house on screen |
 | `src/components/HouseMap.tsx` | The house map: every room at its place; click to open one |
+| `src/scene/HouseScene3D.tsx` | The whole house in 3D as a mass model |
 | `src/outline.ts` | Drawn room shapes: walls from lengths and angles and back, tidying, moving openings onto new walls |
 | `src/components/WallEditor.tsx` | The Edit walls dialog: draw on a grid, then lengths and angles |
 | `src/storage/` | Storage backends: Tauri files, the dev server's rooms folder, browser local storage; backups (`backup.ts`) and save-before-quit (`quit.ts`) |

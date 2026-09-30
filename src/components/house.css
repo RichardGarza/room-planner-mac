@@ -43,3 +43,7 @@
 .house-problem { font-size: 12px; font-weight: 800; color: var(--warn); }
 .house-problem.bad { color: var(--bad); }
 .house-problem.ok { color: var(--ok); }
+
+/* the house in 3D */
+.house-3d { flex: 1; min-height: 0; position: relative; }
+.house-3d canvas { display: block; }

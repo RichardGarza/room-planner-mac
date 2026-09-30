@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { polygonBounds } from '../geometry'
 import { runChecks } from '../checks'
 import { floorsOverlap, houseBounds, itemAt, itemOnPlan, roomAt, roomOnPlan, snapPlacement, toHouse, type HouseDoc, type HouseRoom } from '../house'
@@ -8,6 +8,9 @@ import type { Item, Room } from '../types'
 import { formatRoomSize, useUnits } from '../units'
 import { RoomDrawing } from './PlanThumb'
 import './house.css'
+
+// three.js only loads when the 3D view is opened
+const HouseScene3D = lazy(() => import('../scene/HouseScene3D').then((m) => ({ default: m.HouseScene3D })))
 
 /*
  * The house map: every room of the house at its place, with its furniture. Scroll to zoom, drag to
@@ -45,6 +48,9 @@ export function HouseMap() {
   const svg = useRef<SVGSVGElement>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [arranging, setArranging] = useState(false)
+  /** the whole house in 3D (a mass model) instead of the map; walls cut away at waist height or full */
+  const [in3d, setIn3d] = useState(false)
+  const [cutaway, setCutaway] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
   /** the room being dragged, where it would land (snapped) */
   const [dragging, setDragging] = useState<{ place: HouseRoom; snapped: { x: boolean; y: boolean } } | null>(null)
@@ -228,15 +234,27 @@ export function HouseMap() {
         <div className="house-title">
           <h1>{house.name}</h1>
           <span className="muted small">
-            {arranging
+            {in3d
+              ? 'Drag to look around, scroll to zoom, click a room to open it.'
+              : arranging
               ? 'Drag a room to move it: its walls snap to the rooms around it (hold ⌥ to place it freely). Click a room to select it, R turns it.'
               : `${house.rooms.length} room${house.rooms.length === 1 ? '' : 's'} · click a room to open it · scroll to zoom, drag to move around`}
           </span>
         </div>
-        <button className="chip ghost" onClick={() => setView(null)} title="Show the whole house">Fit</button>
-        <button className={arranging ? 'chip solid' : 'chip'} aria-pressed={arranging} onClick={() => { setArranging(!arranging); setSelected(null) }}>
-          {arranging ? 'Done arranging' : 'Arrange rooms'}
-        </button>
+        <div className="seg" role="group" aria-label="Map or 3D">
+          <button className={in3d ? '' : 'on'} aria-pressed={!in3d} onClick={() => setIn3d(false)}>Map</button>
+          <button className={in3d ? 'on' : ''} aria-pressed={in3d} onClick={() => { setIn3d(true); setArranging(false); setPicked(null) }}>3D</button>
+        </div>
+        {in3d ? (
+          <button className="chip ghost" aria-pressed={!cutaway} onClick={() => setCutaway(!cutaway)} title="Walls cut away at waist height, or at full height">{cutaway ? 'Full-height walls' : 'Cut the walls away'}</button>
+        ) : (
+          <>
+            <button className="chip ghost" onClick={() => setView(null)} title="Show the whole house">Fit</button>
+            <button className={arranging ? 'chip solid' : 'chip'} aria-pressed={arranging} onClick={() => { setArranging(!arranging); setSelected(null) }}>
+              {arranging ? 'Done arranging' : 'Arrange rooms'}
+            </button>
+          </>
+        )}
       </header>
       {arranging && (
         <div className="house-tools" role="toolbar" aria-label="Arrange rooms">
@@ -276,8 +294,16 @@ export function HouseMap() {
         <p className="house-note muted small">{missing.length} room{missing.length === 1 ? '' : 's'} of this house {missing.length === 1 ? 'is' : 'are'} not in your rooms folder any more.</p>
       )}
       {overlapping.size > 0 && <p className="house-note warn small">Rooms drawn in red overlap: drag them apart.</p>}
+      {in3d && (
+        <div className="house-3d">
+          <Suspense fallback={<p className="muted house-note">Loading 3D…</p>}>
+            <HouseScene3D house={house} rooms={rooms} cutaway={cutaway} onOpen={(id) => void openRoom(id)} />
+          </Suspense>
+        </div>
+      )}
       <svg
         ref={svg}
+        style={in3d ? { display: 'none' } : undefined}
         className="house-map"
         viewBox={`${v.x} ${v.y} ${v.w} ${v.h}`}
         preserveAspectRatio="xMidYMid meet"
