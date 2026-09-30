@@ -91,6 +91,10 @@ describe('parseSize', () => {
     expect(r('104 x 99 cm')).toEqual({ w: 104, d: 99 })
     expect(r('104 x 99', 'cm')).toEqual({ w: 104, d: 99 })
     expect(r('41x39')).toEqual({ w: 104, d: 99 })
+    expect(r('41 X 39 * 40')).toEqual({ w: 104, d: 99, h: 102 })
+    expect(r(`3'x3'`)).toEqual({ w: 91, d: 91 })
+    // a decimal comma is a decimal, not a separator
+    expect(r('1,5 x 2 m', 'cm')).toEqual({ w: 150, d: 200 })
     expect(r('41')).toBeNull()
     expect(r('41 x')).toBeNull()
     expect(r('wide x deep')).toBeNull()

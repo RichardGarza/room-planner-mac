@@ -165,17 +165,19 @@ export function parseLength(input: string, unit: Unit = currentUnit()): number |
 }
 
 /**
- * Parse a size typed as "width × depth" or "width × depth × height": the parts separated by ×, x, *,
- * "by" or a comma, each read like parseLength (so 41 x 39, 3' 5" × 3' 3" and 104 x 99 cm all work;
+ * Parse a size typed as "width × depth" or "width × depth × height": the parts separated by ×, x, *
+ * or "by", each read like parseLength (so 41 x 39, 3' 5" × 3' 3" and 104 x 99 cm all work;
  * a unit written on the last part only applies to all of them). Null when it cannot be read.
  */
 export function parseSize(input: string, unit: Unit = currentUnit()): { w: number; d: number; h?: number } | null {
-  const parts = input.trim().toLowerCase().split(/\s*(?:×|\bx\b|(?<=\d|["'″′])\s*x\s*(?=\d)|\*|\bby\b|,)\s*/).map((p) => p.trim()).filter(Boolean)
+  // every separator becomes an "x" (no length unit has an x in it, so splitting on x is safe);
+  // no lookbehind here: older WebKit (macOS 12) cannot parse it and the whole app would fail to load
+  const parts = input.trim().toLowerCase().replace(/[×*]/g, 'x').replace(/\bby\b/g, 'x').split('x').map((p) => p.trim()).filter(Boolean)
   if (parts.length < 2 || parts.length > 3) return null
   // "104 x 99 cm": the last part's unit counts for the bare numbers before it
   const trailing = parts[parts.length - 1].match(/(mm|cm|m|in|inch|inches|ft|feet|")$/)?.[1]
   const read = (p: string) => {
-    const bare = /^\d+(\.\d+)?$/.test(p)
+    const bare = /^\d+([.,]\d+)?$/.test(p)
     return parseLength(bare && trailing ? `${p} ${trailing}` : p, unit)
   }
   const [w, d, h] = parts.map(read)
