@@ -72,20 +72,20 @@ export default Furniture
  * A piece as it looks in its room, to look at only (the whole-house 3D view): the same model,
  * placed by its footprint centre and rotation, with no selecting or dragging.
  */
-export function FurnitureModel({ item, stack = 0 }: { item: Item; stack?: number }) {
+export function FurnitureModel({ item, stack = 0, bedding }: { item: Item; stack?: number; bedding?: boolean }) {
   const fx = useMemo<Fx>(() => ({ emissive: '#000000', ei: 0, fast: false, night: false }), [])
   return (
     <group position={[cm(item.x), 0, cm(item.y)]} rotation={[0, (-item.rot * Math.PI) / 180, 0]}>
       <FxContext.Provider value={fx}>
-        <Piece item={item} stack={stack} />
+        <Piece item={item} stack={stack} bedding={bedding} />
       </FxContext.Provider>
     </group>
   )
 }
 
-function Piece({ item, stack }: { item: Item; stack: number }) {
+function Piece({ item, stack, bedding }: { item: Item; stack: number; bedding?: boolean }) {
   switch (item.kind) {
-    case 'bed': return <Bed item={item} />
+    case 'bed': return <Bed item={item} bedding={bedding} />
     case 'chair': return <Chair item={item} />
     case 'desk': return <Desk item={item} />
     case 'table': return <Table item={item} />

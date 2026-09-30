@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { floorBounds, normalizeRot, polygonBounds } from './geometry'
-import { HOUSE_VERSION, WALL_GAP, houseBounds, levelOf, migrateHouse, onLevel, roomAt, roomOnPlan, toRoom, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
+import { HOUSE_VERSION, WALL_GAP, houseBounds, levelOf, migrateHouse, onLevel, roomAt, roomOnPlan, toHouse, toRoom, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
 import { makeEmptyRoom } from './data'
+import { sanitizeRoom } from './store'
 import { libraryStorage, newId, seedKey, useLibrary } from './library'
 import { migrateDoc } from './migrate'
 import { resizeRoom as resize } from './resize'
@@ -218,7 +219,8 @@ export const useHouses = create<HousesState>((set, get) => ({
     if (!house || !doc || !place) return
     const r = resize(doc, place, side, amount)
     if (!r.amount) return
-    const next: RoomDoc = { ...r.doc, updatedAt: new Date().toISOString() }
+    // the planner's own tidy-up, as when the room is edited there (a no-op after clampAmount, kept as a safety net)
+    const next: RoomDoc = { ...r.doc, room: sanitizeRoom(r.doc.room), updatedAt: new Date().toISOString() }
     try {
       const s = await libraryStorage()
       await s.save(next)
@@ -229,6 +231,20 @@ export const useHouses = create<HousesState>((set, get) => ({
     set({ rooms: { ...get().rooms, [roomId]: next } })
     if (r.place.x !== place.x || r.place.y !== place.y) {
       await update((h) => ({ ...h, rooms: h.rooms.map((p) => (p.roomId === roomId ? { ...p, x: r.place.x, y: r.place.y } : p)) }))
+      // the room's origin moved: every other house it stands in moves it back the same way, so it stays put there too
+      const shift: [number, number] = side === 'left' ? [-r.amount, 0] : [0, -r.amount]
+      const others = get().houses.filter((h) => h.id !== house.id && h.rooms.some((p) => p.roomId === roomId))
+      if (others.length) {
+        const s = await libraryStorage()
+        const ts = new Date().toISOString()
+        const moved = others.map((h) => ({ ...h, updatedAt: ts, rooms: h.rooms.map((p) => (p.roomId === roomId ? { ...p, ...xy(toHouse(p, shift)) } : p)) }))
+        try {
+          for (const h of moved) await s.saveHouse?.(h)
+        } catch (e) {
+          set({ status: 'error', error: `Could not update the other houses with ${doc.name}: ${errorText(e)}` })
+        }
+        useHouses.setState((st) => ({ houses: st.houses.map((h) => moved.find((m) => m.id === h.id) ?? h) }))
+      }
     }
     void useLibrary.getState().refresh()
   },
@@ -369,6 +385,8 @@ export const useHouses = create<HousesState>((set, get) => ({
     await update((h) => ({ ...h, rooms: h.rooms.filter((p) => p.roomId !== roomId) }))
   },
 }))
+
+const xy = ([x, y]: [number, number]) => ({ x: Math.round(x), y: Math.round(y) })
 
 function currentHouse(): HouseDoc | undefined {
   const st = useHouses.getState()

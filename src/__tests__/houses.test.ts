@@ -10,7 +10,7 @@ class MemoryStorage {
 ;(globalThis as unknown as { localStorage: MemoryStorage }).localStorage = new MemoryStorage()
 
 import { floorBounds } from '../geometry'
-import { WALL_GAP, itemOnPlan, roomOnPlan, type HouseDoc, type HouseRoom } from '../house'
+import { WALL_GAP, itemOnPlan, roomOnPlan, toHouse, type HouseDoc, type HouseRoom } from '../house'
 import { HOME_ID, useHouses } from '../houses'
 import { useLibrary } from '../library'
 import { bedroomTwo, forestsRoom } from '../seeds'
@@ -322,5 +322,27 @@ describe('houses', () => {
     const b2 = storage.docs.get('room-bedroom-2')!
     await useHouses.getState().resizeRoom('room-bedroom-2', 'right', 50)
     expect(storage.docs.get('room-bedroom-2')).toEqual(b2)
+  })
+
+  it('keeps a room put in every house it stands in when its back or left wall moves', async () => {
+    await useHouses.getState().refresh()
+    // the same hallway in Home and in a second house, turned there
+    await useHouses.getState().open(HOME_ID)
+    const id = (await useHouses.getState().addHallway())!
+    storage.houses.set('house-2', { id: 'house-2', name: 'Other', createdAt: '', updatedAt: '', version: 1, rooms: [{ roomId: id, x: 1000, y: 1000, rot: 90 }] })
+    await useHouses.getState().refresh()
+    await useHouses.getState().open(HOME_ID)
+    const other = () => storage.houses.get('house-2')!.rooms[0]
+    const doorOnPlan = () => {
+      const d = storage.docs.get(id)!.room.doors[0]
+      return toHouse(other(), [d.offset, storage.docs.get(id)!.room.d])
+    }
+    const before = doorOnPlan()
+    await useHouses.getState().resizeRoom(id, 'left', 40)
+    expect(storage.docs.get(id)!.room.w).toBe(160)
+    // in the other house the door (on the front wall) has not moved on the plan
+    const after = doorOnPlan()
+    expect(after[0]).toBeCloseTo(before[0])
+    expect(after[1]).toBeCloseTo(before[1])
   })
 })

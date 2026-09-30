@@ -52,7 +52,8 @@ describe('resizing a room on the house map', () => {
   }
 
   it('keeps a room at least MIN_ROOM across, and refuses drawn shapes', () => {
-    const r = resizeRoom(docOf(room()), { roomId: 'r', x: 0, y: 0, rot: 0 }, 'right', -1000)
+    const bare: Room = { ...room(), windows: [], doors: [], closets: [] }
+    const r = resizeRoom(docOf(bare), { roomId: 'r', x: 0, y: 0, rot: 0 }, 'right', -1000)
     expect(r.doc.room.w).toBe(MIN_ROOM)
     expect(clampAmount(room(), 'bottom', 5000)).toBe(1200 - 400)
     const drawn = { ...room(), outline: [[0, 0], [300, 0], [300, 400], [0, 400]] as [number, number][] }
@@ -72,5 +73,22 @@ describe('resizing a room on the house map', () => {
     expect(300 + snapResize(house, rooms, hallAt, hall, 'bottom', 90)).toBe(400)
     // nothing near: unchanged
     expect(snapResize(house, rooms, hallAt, hall, 'right', 60)).toBe(60)
+  })
+
+  it('stops a wall moving in at the first opening on the walls it runs across, so nothing hangs off a wall', () => {
+    // the window on the back wall runs 100..200 and the walk-in on the front wall 20..160
+    const place: HouseRoom = { roomId: 'r', x: 0, y: 0, rot: 0 }
+    expect(resizeRoom(docOf(room()), place, 'right', -1000).doc.room.w).toBe(200)
+    const left = resizeRoom(docOf(room()), place, 'left', -1000)
+    expect(left.amount).toBe(-20)
+    expect(left.doc.room.closets[0].inside!.offset).toBe(0)
+    expect(left.doc.room.windows[0].offset).toBe(80)
+    // the door on the left wall runs 50..130: the back wall comes down to it, the front up to it
+    expect(resizeRoom(docOf(room()), place, 'top', -1000).amount).toBe(-50)
+    expect(resizeRoom(docOf(room()), place, 'bottom', -1000).doc.room.d).toBe(130)
+    // a new hallway (door on the front wall, 20..100): 100 wide at the least
+    const hall: Room = { ...makeEmptyRoom('Hall', 120, 300), windows: [], doors: [{ id: 'd1', wall: 'bottom', offset: 20, width: 80, height: 205, sill: 0, hinge: 'right', swing: 'in' }] }
+    expect(resizeRoom(docOf(hall), place, 'right', -1000).doc.room.w).toBe(100)
+    expect(resizeRoom(docOf(hall), place, 'left', -1000).doc.room.doors[0].offset).toBe(0)
   })
 })

@@ -111,7 +111,8 @@ export function HouseMap() {
   const handleSize = v.w / 70
   const handleOf = (room: Room, side: Wall) => {
     const len = Math.min(handleSize * 3.5, (side === 'left' || side === 'right' ? room.d : room.w) * 0.5)
-    const t = handleSize
+    // never thicker than a quarter of the room across that way, so a narrow room keeps floor to grab
+    const t = Math.min(handleSize, (side === 'left' || side === 'right' ? room.w : room.d) / 4)
     switch (side) {
       case 'left': return { x: -t / 2, y: room.d / 2 - len / 2, w: t, h: len }
       case 'right': return { x: room.w - t / 2, y: room.d / 2 - len / 2, w: t, h: len }
@@ -127,14 +128,23 @@ export function HouseMap() {
     const doc = rooms[selected]
     if (!place || !doc || !canResize(doc.room)) return null
     const [lx, ly] = toRoom(place, at)
-    const pad = handleSize * 0.6
-    const side = SIDES.find((sd) => { const h = handleOf(doc.room, sd); return lx > h.x - pad && lx < h.x + h.w + pad && ly > h.y - pad && ly < h.y + h.h + pad })
+    const room = doc.room
+    // each handle catches a little around it (no more than an eighth of the room into it); of several, the nearest wall
+    const hits = SIDES.filter((sd) => {
+      const h = handleOf(room, sd)
+      const pad = Math.min(handleSize * 0.6, (sd === 'left' || sd === 'right' ? room.w : room.d) / 8)
+      return lx > h.x - pad && lx < h.x + h.w + pad && ly > h.y - pad && ly < h.y + h.h + pad
+    })
+    const away = (sd: Wall) => Math.abs(sd === 'left' ? lx : sd === 'right' ? lx - room.w : sd === 'top' ? ly : ly - room.d)
+    const side = hits.sort((a, b) => away(a) - away(b))[0]
     return side ? { place, side } : null
   }
 
   // another house, or its rooms loaded: fit them (not while arranging, or the map would jump with every move)
   const fitKey = `${houseId}|${level}|${Object.keys(rooms).sort().join()}`
-  useEffect(() => { setView(null) }, [fitKey])
+  // (while arranging: fit once to show what came in, then hold still again)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setView(arranging ? fit() : null) }, [fitKey])
 
   const scale = () => { const r = svg.current!.getBoundingClientRect(); return Math.max(v.w / r.width, v.h / r.height) }
   /** A point on the screen, on the house plan (the viewBox is centred in the element, "meet"). */

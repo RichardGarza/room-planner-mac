@@ -55,7 +55,8 @@ export function TopBar() {
 
   // The A/B/C/Now presets describe Mila's furniture; other rooms get suggestions worked out from their own pieces.
   const isExample = items.some((i) => i.id in presetLayouts[0].placements)
-  const suggested: Layout[] = isExample ? presetLayouts : suggestions
+  // the example room's presets as stored in the room (a resize on the house map shifts those), else the originals
+  const suggested: Layout[] = isExample ? presetLayouts.map((p) => savedLayouts.find((l) => l.id === p.id) ?? p) : suggestions
   // the example room's document carries the presets as its own layouts: do not list them twice
   const yours = savedLayouts.filter((l) => !suggested.some((s) => s.id === l.id))
 

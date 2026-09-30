@@ -112,7 +112,7 @@ function HouseRoom3D({ place, doc, cutaway, lift, lit, onHover, onOpen }: {
       {roomWalls(room).map((w) => <Wall key={w} room={room} wall={w} height={H} />)}
       {(room.closets ?? []).map((c) => <ClosetShell key={c.id} room={room} closetId={c.id} height={H} />)}
       {/* the furniture as it looks in the room (rugs stacked in order so they never flicker) */}
-      {items.filter((i) => i.inRoom).map((it) => <FurnitureModel key={it.id} item={it} stack={isRugKind(it.kind) ? rugs.indexOf(it.id) : 0} />)}
+      {items.filter((i) => i.inRoom).map((it) => <FurnitureModel key={it.id} item={it} stack={isRugKind(it.kind) ? rugs.indexOf(it.id) : 0} bedding={doc.settings.bedding} />)}
       <Label text={doc.name} lit={lit} position={[middle[0], H + 0.45, middle[1]]} />
     </group>
   )

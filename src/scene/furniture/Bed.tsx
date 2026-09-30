@@ -14,8 +14,10 @@ const MATTRESS = '#fbfaf7'
  * a folded top edge, pillows and a throw. Cribs and toddler beds get rails, bunk
  * beds a second deck and a ladder. The item colour is the bedding.
  */
-export function Bed({ item }: { item: Item }) {
-  const bedding = useStore((s) => s.bedding)
+/** `bedding`: made up or bare; the planner's setting unless given (the whole-house view passes each room's own). */
+export function Bed({ item, bedding: own }: { item: Item; bedding?: boolean }) {
+  const planner = useStore((s) => s.bedding)
+  const bedding = own ?? planner
   const w = cm(item.w), d = cm(item.d), h = cm(item.h)
   const style = bedStyle(item.name, item.w, item.h)
   const small = style === 'crib' || style === 'toddler'

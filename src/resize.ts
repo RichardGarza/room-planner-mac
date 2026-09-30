@@ -18,10 +18,28 @@ export function canResize(room: Room): boolean {
   return !room.outline
 }
 
-/** How far the wall may move: the room stays between MIN_ROOM and MAX_ROOM across. */
+/**
+ * How far the wall may move: the room stays between MIN_ROOM and MAX_ROOM across, and a wall moving
+ * in stops at the first door, window, radiator or closet (a walk-in's inside included) on the two
+ * walls it runs across, so nothing is ever left hanging off its wall.
+ */
 export function clampAmount(room: Room, side: Wall, amount: number): number {
-  const size = side === 'left' || side === 'right' ? room.w : room.d
-  return Math.round(Math.min(MAX_ROOM - size, Math.max(MIN_ROOM - size, amount)))
+  const across = side === 'left' || side === 'right'
+  const size = across ? room.w : room.d
+  // the walls whose openings run along the move: the back and front for a side wall moving, else the sides
+  const along = (w: string) => (across ? w === 'top' || w === 'bottom' : w === 'left' || w === 'right')
+  const spans = [
+    ...room.windows, ...room.doors, ...room.radiators,
+    ...(room.closets ?? []).map((c) => c.inside ?? { offset: c.offset, width: c.width }).map((s, i) => ({ ...s, wall: (room.closets ?? [])[i].wall })),
+  ].filter((o) => along(o.wall))
+  let lo = MIN_ROOM - size
+  if (spans.length) {
+    // the near wall (left, back) may come in as far as the nearest start; the far one back to the furthest end
+    lo = side === 'left' || side === 'top'
+      ? Math.max(lo, -Math.min(...spans.map((o) => o.offset)))
+      : Math.max(lo, Math.max(...spans.map((o) => o.offset + o.width)) - size)
+  }
+  return Math.round(Math.min(MAX_ROOM - size, Math.max(Math.min(0, lo), amount)))
 }
 
 /**
