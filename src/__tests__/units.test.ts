@@ -79,3 +79,21 @@ describe('formatting', () => {
     expect(formatRoomDims(270, 370, 260, { unit: 'in' })).toBe('8′ 10½″ × 12′ 1½″ × 8′ 6½″')
   })
 })
+
+describe('parseSize', () => {
+  it('reads width × depth, with or without a height, in any unit', async () => {
+    const { parseSize } = await import('../units')
+    const r = (s: string, u: 'in' | 'cm' = 'in') => { const v = parseSize(s, u); return v && Object.fromEntries(Object.entries(v).map(([k, n]) => [k, Math.round(n)])) }
+    expect(r('41 x 39')).toEqual({ w: 104, d: 99 })
+    expect(r('41×39×40')).toEqual({ w: 104, d: 99, h: 102 })
+    expect(r('41 by 39')).toEqual({ w: 104, d: 99 })
+    expect(r(`3' 5" x 3' 3"`)).toEqual({ w: 104, d: 99 })
+    expect(r('104 x 99 cm')).toEqual({ w: 104, d: 99 })
+    expect(r('104 x 99', 'cm')).toEqual({ w: 104, d: 99 })
+    expect(r('41x39')).toEqual({ w: 104, d: 99 })
+    expect(r('41')).toBeNull()
+    expect(r('41 x')).toBeNull()
+    expect(r('wide x deep')).toBeNull()
+    expect(r('0 x 39')).toBeNull()
+  })
+})

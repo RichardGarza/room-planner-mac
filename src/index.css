@@ -87,8 +87,12 @@ kbd { background: #f1ece6; border-radius: 4px; padding: 0 5px; font-family: inhe
 .plan-wallnum { font-size: 7px; fill: #b3a99f; font-weight: 600; pointer-events: none; }
 .plan-dim { font-size: 8px; fill: #5c534b; font-weight: 700; }
 .plan-hint { font-size: 8px; fill: #b8afa5; }
-.plan-item-name { fill: #3f3833; font-weight: 800; pointer-events: none; }
-.plan-item-dim { fill: #6b625a; pointer-events: none; }
+.plan-item-name { fill: #3f3833; font-weight: 800; }
+.plan-item-dim { fill: #6b625a; }
+/* the name and size take a double-click to edit them; a plain press still drags the piece (it bubbles to the item) */
+.plan-item-name:hover, .plan-item-dim:hover { text-decoration: underline dotted; }
+.plan-label-edit { position: fixed; z-index: 70; height: 30px; padding: 0 10px; border-radius: 8px; border: 2px solid var(--pink); background: #fff; font: 800 13px 'Nunito', system-ui, sans-serif; text-align: center; box-shadow: 0 6px 20px rgba(40, 25, 20, 0.2); outline: none; }
+.plan-label-edit.bad { border-color: var(--bad); color: var(--bad); }
 .plan-item.selected rect, .plan-item.selected circle { filter: drop-shadow(0 0 3px rgba(242,140,40,0.5)); }
 .dim-text { font-size: 7px; fill: var(--pink); font-weight: 800; }
 .item-toolbar { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); background: #2f2a26; color: #fff; border-radius: 999px; padding: 6px 8px 6px 14px; display: flex; align-items: center; gap: 4px; font-weight: 700; font-size: 12px; }

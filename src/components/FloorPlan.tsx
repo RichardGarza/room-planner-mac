@@ -1,9 +1,10 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { closetClearanceDepth, closetInside, doorSwing, wallStripPolygon, edgeIndex, footprint, frontRecessPad, isAxisAligned, isSide, normalizeRot, rectOf, roomPolygon, roomWalls, wallAxes, wallLength, wallPoint, wallStripRect } from '../geometry'
 import { isRugKind } from '../placement'
 import { useStore } from '../store'
 import type { AnyWall, Closet, Door, Item, Room, Wall } from '../types'
-import { CM_PER_IN, formatLength, useUnits } from '../units'
+import { CM_PER_IN, formatLength, parseSize, useUnits } from '../units'
 
 const M = 34 // margin around the room for labels (cm units in the viewBox)
 const PARK_H = 150
@@ -23,6 +24,9 @@ export function FloorPlan() {
   const scale = SCALE[unit]
   const svgRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null)
+  /** the label being edited in place: a piece's name or its size (double-click either on the plan) */
+  const [editing, setEditing] = useState<{ itemId: string; field: LabelField; box: DOMRect } | null>(null)
+  const edit = (it: Item, field: LabelField, el: Element) => setEditing({ itemId: it.id, field, box: el.getBoundingClientRect() })
 
   const toRoom = useCallback((e: React.PointerEvent) => {
     const svg = svgRef.current!
@@ -65,6 +69,7 @@ export function FloorPlan() {
   const drawn = !!room.outline
 
   return (
+    <>
     <svg
       ref={svgRef}
       className="plan"
@@ -107,10 +112,10 @@ export function FloorPlan() {
 
         {/* rugs first, then solid items */}
         {items.filter((i) => i.inRoom && isRugKind(i.kind)).map((it) => (
-          <PlanItem key={it.id} item={it} selected={it.id === selectedId} onDown={onDown} toRoom={toRoom} />
+          <PlanItem key={it.id} item={it} selected={it.id === selectedId} onDown={onDown} toRoom={toRoom} onEdit={edit} />
         ))}
         {items.filter((i) => i.inRoom && !isRugKind(i.kind)).map((it) => (
-          <PlanItem key={it.id} item={it} selected={it.id === selectedId} onDown={onDown} toRoom={toRoom} />
+          <PlanItem key={it.id} item={it} selected={it.id === selectedId} onDown={onDown} toRoom={toRoom} onEdit={edit} />
         ))}
 
         {/* door swings (an out-swinging door draws its arc outside the room) */}
@@ -182,7 +187,7 @@ export function FloorPlan() {
           )}
         </g>
         {items.filter((i) => !i.inRoom).map((it) => (
-          <PlanItem key={it.id} item={it} selected={it.id === selectedId} onDown={onDown} toRoom={toRoom} muted />
+          <PlanItem key={it.id} item={it} selected={it.id === selectedId} onDown={onDown} toRoom={toRoom} onEdit={edit} muted />
         ))}
 
         {/* scale */}
@@ -194,6 +199,11 @@ export function FloorPlan() {
         </g>
       </g>
     </svg>
+    {editing && (() => {
+      const it = items.find((x) => x.id === editing.itemId)
+      return it ? <LabelEditor item={it} field={editing.field} box={editing.box} onDone={() => setEditing(null)} /> : null
+    })()}
+    </>
   )
 }
 
@@ -334,7 +344,7 @@ function WallText({ room, wall, t, text, dist = 14, className = 'plan-label' }: 
 
 type ToRoom = (e: React.PointerEvent) => { x: number; y: number }
 
-function PlanItem({ item, selected, onDown, toRoom, muted }: { item: Item; selected: boolean; onDown: (e: React.PointerEvent, it: Item) => void; toRoom: ToRoom; muted?: boolean }) {
+function PlanItem({ item, selected, onDown, toRoom, muted, onEdit }: { item: Item; selected: boolean; onDown: (e: React.PointerEvent, it: Item) => void; toRoom: ToRoom; muted?: boolean; onEdit?: (it: Item, field: LabelField, el: Element) => void }) {
   const { fw } = footprint(item)
   const unit = useUnits((s) => s.unit)
   const stroke = selected ? '#f28c28' : '#8f867d'
@@ -406,10 +416,15 @@ function PlanItem({ item, selected, onDown, toRoom, muted }: { item: Item; selec
           <rect x={-item.w / 2 + 5} y={-item.d / 2 + 5} width={item.w - 10} height={item.d - 10} rx={2} fill="none" stroke="#b7ada3" strokeWidth={0.8} />
         )}
       </g>
-      <text className="plan-item-name" textAnchor="middle" y={-1} fontSize={fontSize}>
+      {/* double-click the name to rename the piece, the size to resize it */}
+      <text className="plan-item-name" textAnchor="middle" y={-1} fontSize={fontSize}
+        onDoubleClick={(e) => { e.stopPropagation(); onEdit?.(item, 'name', e.currentTarget) }}>
+        <title>Double-click to rename</title>
         {item.name.split(' ').slice(0, 2).join(' ')}
       </text>
-      <text className="plan-item-dim" textAnchor="middle" y={fontSize} fontSize={fontSize * 0.7}>
+      <text className="plan-item-dim" textAnchor="middle" y={fontSize} fontSize={fontSize * 0.7}
+        onDoubleClick={(e) => { e.stopPropagation(); onEdit?.(item, 'size', e.currentTarget) }}>
+        <title>Double-click to change the size</title>
         {formatLength(item.w, { unit, bare: true })}×{formatLength(item.d, { unit, bare: true })}
       </text>
       {selected && !locked && <RotateHandle item={item} toRoom={toRoom} />}
@@ -572,5 +587,75 @@ function DimLines({ item, roomW, roomD }: { item: Item; roomW: number; roomD: nu
         </g>
       )}
     </g>
+  )
+}
+
+type LabelField = 'name' | 'size'
+
+/**
+ * Editing a piece's name or size in place, in a box over its label on the plan. Enter or clicking
+ * away saves, Esc cancels. A size is typed as width × depth, or width × depth × height, in any
+ * unit (parseSize); one that cannot be read is shown in red and not saved.
+ */
+function LabelEditor({ item, field, box, onDone }: { item: Item; field: LabelField; box: DOMRect; onDone: () => void }) {
+  const unit = useUnits((s) => s.unit)
+  const updateItem = useStore((s) => s.updateItem)
+  const resizeItem = useStore((s) => s.resizeItem)
+  const initial = field === 'name'
+    ? item.name
+    : [item.w, item.d, item.h].map((v) => formatLength(v, { unit, bare: true })).join(' × ')
+  const [text, setText] = useState(initial)
+  const [bad, setBad] = useState(false)
+  const done = useRef(false)
+  const input = useRef<HTMLInputElement>(null)
+  useEffect(() => { input.current?.focus(); input.current?.select() }, [])
+
+  /** Save what was typed; true when it was saved (or nothing changed). */
+  const save = (): boolean => {
+    if (field === 'name') {
+      const name = text.trim()
+      if (name && name !== item.name) updateItem(item.id, { name })
+      return true
+    }
+    const size = parseSize(text, unit)
+    if (!size) return false
+    const fit = (v: number, lo: number, hi: number) => Math.round(Math.min(hi, Math.max(lo, v)))
+    const next = { w: fit(size.w, 5, 600), d: fit(size.d, 5, 600), ...(size.h !== undefined ? { h: fit(size.h, 1, 400) } : {}) }
+    if (next.w !== item.w || next.d !== item.d || (next.h !== undefined && next.h !== item.h)) resizeItem(item.id, next)
+    return true
+  }
+  const finish = (keep: boolean) => {
+    if (done.current) return
+    if (keep && !save()) {
+      setBad(true)
+      return
+    }
+    done.current = true
+    onDone()
+  }
+  const width = Math.max(field === 'name' ? 150 : 130, box.width + 40)
+  return createPortal(
+    <input
+      ref={input}
+      className={bad ? 'plan-label-edit bad' : 'plan-label-edit'}
+      style={{ left: box.left + box.width / 2 - width / 2, top: box.top + box.height / 2 - 15, width }}
+      value={text}
+      aria-label={field === 'name' ? `Name of ${item.name}` : `Size of ${item.name}, width × depth × height`}
+      title={field === 'size' ? 'Width × depth, or width × depth × height, in any unit' : undefined}
+      onChange={(e) => { setText(e.target.value); setBad(false) }}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') finish(true)
+        if (e.key === 'Escape') { done.current = true; onDone() }
+      }}
+      // clicking away saves it if it can be read, and closes either way
+      onBlur={() => {
+        if (done.current) return
+        save()
+        done.current = true
+        onDone()
+      }}
+    />,
+    document.body,
   )
 }
