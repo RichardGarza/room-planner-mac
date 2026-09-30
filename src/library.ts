@@ -70,6 +70,8 @@ interface LibraryState {
   remove: (id: string) => Promise<void>
   exportDoc: (id: string) => Promise<void>
   importDoc: () => Promise<string | null>
+  /** Add a room from a file's contents (already picked and parsed) and open it; null when it is not a room. */
+  importRoom: (raw: unknown) => Promise<string | null>
   saveNow: () => Promise<void>
   /**
    * Copy (or move) one of the open room's items into another saved room, on a free spot there
@@ -758,6 +760,16 @@ export const useLibrary = create<LibraryState>((set, get) => {
         }
         const raw = await s.importDoc()
         if (raw === null) return null
+        return await get().importRoom(raw)
+      } catch (e) {
+        set({ status: 'error', error: `Could not import: ${errorText(e)}` })
+        return null
+      }
+    },
+
+    importRoom: async (raw) => {
+      try {
+        const s = await storage()
         const doc = migrateDoc(raw)
         if (!doc) {
           set({ error: 'That file is not a Room Planner room.' })

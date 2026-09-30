@@ -41,7 +41,7 @@ export function HouseMap() {
   const rooms = useHouses((s) => s.rooms)
   const status = useHouses((s) => s.status)
   const error = useHouses((s) => s.error)
-  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem, addHallway } = useHouses.getState()
+  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem, addHallway, exportHouse } = useHouses.getState()
   const openRoom = useLibrary((s) => s.open)
   const library = useLibrary((s) => s.rooms)
   const unit = useUnits((s) => s.unit)
@@ -252,6 +252,7 @@ export function HouseMap() {
         ) : (
           <>
             <button className="chip ghost" onClick={() => setView(null)} title="Show the whole house">Fit</button>
+            <button className="chip ghost" onClick={() => void exportHouse(house.id)} title="Save the house and all its rooms (layouts too) as one file, to back up or open on another computer">Export</button>
             <button className={arranging ? 'chip solid' : 'chip'} aria-pressed={arranging} onClick={() => { setArranging(!arranging); setSelected(null) }}>
               {arranging ? 'Done arranging' : 'Arrange rooms'}
             </button>

@@ -86,6 +86,10 @@ export class LocalStorageBackend implements RoomStorage {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  async importFile() {
+    return (await this.importDoc()) as unknown
+  }
+
   async importDoc() {
     return new Promise<RoomDoc | null>((resolve) => {
       const input = document.createElement('input')

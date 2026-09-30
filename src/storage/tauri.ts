@@ -296,6 +296,28 @@ export class TauriFsBackend implements RoomStorage {
     }
   }
 
+  async importFile(): Promise<unknown | null> {
+    let picked: string | string[] | null
+    try {
+      picked = await open({ multiple: false, directory: false, filters: JSON_FILTER })
+    } catch (err) {
+      throw new Error(`Could not open the file dialog: ${describe(err)}`)
+    }
+    const path = Array.isArray(picked) ? (picked[0] ?? null) : picked
+    if (!path) return null
+    let text: string
+    try {
+      text = await readTextFile(path)
+    } catch (err) {
+      throw new Error(`Could not read ${path}: ${describe(err)}`)
+    }
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new Error(`"${baseName(path)}" is not valid JSON`)
+    }
+  }
+
   async importDoc(): Promise<RoomDoc | null> {
     let picked: string | string[] | null
     try {

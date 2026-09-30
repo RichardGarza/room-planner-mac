@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { floorBounds, normalizeRot, polygonBounds } from './geometry'
-import { HOUSE_VERSION, WALL_GAP, houseBounds, roomAt, roomOnPlan, toRoom, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
+import { HOUSE_VERSION, WALL_GAP, houseBounds, migrateHouse, roomAt, roomOnPlan, toRoom, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
 import { makeEmptyRoom } from './data'
 import { libraryStorage, newId, seedKey, useLibrary } from './library'
 import { migrateDoc } from './migrate'
@@ -51,6 +51,27 @@ interface HousesState {
    * the other rooms and added to the house; returns its id.
    */
   addHallway: () => Promise<string | null>
+  /** Save a house and all its rooms (layouts included) as one file, through the save dialog / a download. */
+  exportHouse: (id: string) => Promise<void>
+  /**
+   * Add a house from an exported file: its rooms join the library (as copies with new ids when one
+   * with the same id is already there, so nothing is ever overwritten) and the house points at them.
+   * Returns the new house's id, or null when the file is not a house.
+   */
+  importHouse: (raw: unknown) => Promise<string | null>
+}
+
+/** What an exported house file holds. */
+export interface HouseBundle {
+  kind: typeof BUNDLE_KIND
+  version: 1
+  house: HouseDoc
+  rooms: RoomDoc[]
+}
+export const BUNDLE_KIND = 'room-planner-house'
+
+export function isHouseBundle(raw: unknown): raw is HouseBundle {
+  return !!raw && typeof raw === 'object' && (raw as { kind?: unknown }).kind === BUNDLE_KIND
 }
 
 function flagGet(key: string) {
@@ -238,6 +259,66 @@ export const useHouses = create<HousesState>((set, get) => ({
     await useLibrary.getState().refresh()
     await get().addRoom(doc.id)
     return doc.id
+  },
+
+  exportHouse: async (id) => {
+    const house = get().houses.find((h) => h.id === id)
+    if (!house) return
+    try {
+      const s = await libraryStorage()
+      const rooms: RoomDoc[] = []
+      for (const p of house.rooms) {
+        const raw = await s.load(p.roomId).catch(() => null)
+        const doc = raw ? migrateDoc(raw) : null
+        if (doc) rooms.push(doc)
+      }
+      const bundle: HouseBundle = { kind: BUNDLE_KIND, version: 1, house, rooms }
+      const name = `${house.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'house'}.house.json`
+      if (!s.saveFile) throw new Error('saving files is not available here')
+      await s.saveFile(name, new TextEncoder().encode(JSON.stringify(bundle, null, 2)), 'application/json')
+    } catch (e) {
+      set({ status: 'error', error: `Could not export the house: ${errorText(e)}` })
+    }
+  },
+
+  importHouse: async (raw) => {
+    if (!isHouseBundle(raw)) return null
+    const house = migrateHouse(raw.house)
+    if (!house || !Array.isArray(raw.rooms)) return null
+    try {
+      const s = await libraryStorage()
+      const have = new Set((await s.list()).map((r) => r.id))
+      const ids = new Map<string, string>()
+      const ts = new Date().toISOString()
+      for (const r of raw.rooms) {
+        const doc = migrateDoc(r)
+        if (!doc) continue
+        const id = have.has(doc.id) ? newId() : doc.id
+        ids.set(doc.id, id)
+        have.add(id)
+        await s.save({ ...doc, id, updatedAt: ts })
+      }
+      const houses = s.listHouses ? await s.listHouses() : []
+      const taken = houses.some((h) => h.id === house.id)
+      const names = new Set(houses.map((h) => h.name))
+      let name = house.name
+      for (let i = 2; names.has(name); i++) name = `${house.name} (${i})`
+      const next: HouseDoc = {
+        ...house,
+        id: taken ? `house-${Math.random().toString(36).slice(2, 10)}` : house.id,
+        name,
+        createdAt: ts,
+        updatedAt: ts,
+        rooms: house.rooms.filter((p) => ids.has(p.roomId)).map((p) => ({ ...p, roomId: ids.get(p.roomId)! })),
+      }
+      await s.saveHouse?.(next)
+      await useLibrary.getState().refresh()
+      await get().refresh()
+      return next.id
+    } catch (e) {
+      set({ status: 'error', error: `Could not import the house: ${errorText(e)}` })
+      return null
+    }
   },
 
   removeRoom: async (roomId) => {

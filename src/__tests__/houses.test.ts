@@ -245,4 +245,37 @@ describe('houses', () => {
     const id2 = (await useHouses.getState().addHallway())!
     expect(storage.docs.get(id2)!.name).toBe('Hallway 2')
   })
+
+  it('exports a house with its rooms, and imports it without overwriting anything', async () => {
+    let file: { name: string; text: string } | null = null
+    ;(storage as unknown as { saveFile: RoomStorage['saveFile'] }).saveFile = async (name, data) => { file = { name, text: new TextDecoder().decode(data) } }
+    await useHouses.getState().refresh()
+    await useHouses.getState().exportHouse(HOME_ID)
+    expect(file!.name).toBe('home.house.json')
+    const bundle = JSON.parse(file!.text)
+    expect(bundle.kind).toBe('room-planner-house')
+    expect(bundle.rooms.map((r: RoomDoc) => r.id)).toEqual(['room-forest', 'room-bedroom-2'])
+
+    // into the same library: the rooms come in as copies, the house as "Home (2)"
+    const before = JSON.stringify([...storage.docs.values()])
+    const id = (await useHouses.getState().importHouse(bundle))!
+    const imported = storage.houses.get(id)!
+    expect(imported.name).toBe('Home (2)')
+    expect(imported.id).not.toBe(HOME_ID)
+    expect(imported.rooms.map((p) => p.roomId).some((r) => r === 'room-forest' || r === 'room-bedroom-2')).toBe(false)
+    for (const p of imported.rooms) expect(storage.docs.has(p.roomId)).toBe(true)
+    // the originals are untouched
+    expect(JSON.stringify([...storage.docs.values()].filter((d) => d.id === 'room-forest' || d.id === 'room-bedroom-2'))).toBe(JSON.stringify(JSON.parse(before)))
+    // layouts travel with the rooms
+    const copy = storage.docs.get(imported.rooms[0].roomId)!
+    expect(copy.layouts).toEqual(storage.docs.get('room-forest')!.layouts)
+
+    // into an empty library the ids are kept
+    const empty = new FakeStorage()
+    useLibrary.getState().configure({ storage: empty })
+    const id2 = (await useHouses.getState().importHouse(bundle))!
+    expect(id2).toBe(HOME_ID)
+    expect([...empty.docs.keys()]).toEqual(['room-forest', 'room-bedroom-2'])
+    expect(await useHouses.getState().importHouse({ kind: 'something else' })).toBeNull()
+  })
 })

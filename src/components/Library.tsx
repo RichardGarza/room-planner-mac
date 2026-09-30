@@ -1,6 +1,7 @@
 import { plannerTitle, useOwner } from '../owner'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useHouses } from '../houses'
+import { isHouseBundle, useHouses } from '../houses'
+import { libraryStorage } from '../library'
 import './house.css'
 import { HouseThumb } from './HouseThumb'
 import { getStorage } from '../storage'
@@ -18,6 +19,23 @@ const FLASH_MS = 1600
 /** Home screen: two big ways in (new room / existing room), then every saved room, grouped. */
 export function Library() {
   const houses = useHouses((s) => s.houses)
+  /** A room file opens as a room; a house file brings its rooms along and opens its map. */
+  const importAny = async () => {
+    try {
+      const s = await libraryStorage()
+      if (!s.importFile) return void importDoc()
+      const raw = await s.importFile()
+      if (raw === null) return
+      if (isHouseBundle(raw)) {
+        const id = await useHouses.getState().importHouse(raw)
+        if (id) await useHouses.getState().open(id)
+      } else {
+        await useLibrary.getState().importRoom(raw)
+      }
+    } catch (e) {
+      useLibrary.setState({ status: 'error', error: `Could not import: ${e instanceof Error ? e.message : String(e)}` })
+    }
+  }
   const openHouse = useHouses((s) => s.open)
   const rooms = useLibrary((s) => s.rooms)
   const groups = useLibrary((s) => s.groups)
@@ -145,7 +163,7 @@ export function Library() {
               aria-label="Search rooms"
             />
             <UnitToggle />
-            <button className="chip ghost" onClick={() => void importDoc()} title="Open a room file exported with Export JSON — to move a room between computers or restore a backup">Import room file</button>
+            <button className="chip ghost" onClick={() => void importAny()} title="Open a room or house file exported earlier: to move rooms between computers or restore a backup">Import room or house file</button>
           </div>
         </div>
 
