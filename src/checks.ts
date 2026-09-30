@@ -1,4 +1,4 @@
-import { accessAllows, accessZones, closetClearance, closetLabel, doorClearanceFor, doorwayPolygon, isSide, polygonInRoom, wallStripPolygon, fractionInRoom, gapBetween, isRugKind, itemsGap, itemsIntersect, overlapArea, polygonIntersectsRect, polygonOf, polygonsIntersect, rectOf, wallStripRect, type AccessZone } from './geometry'
+import { accessAllows, accessZones, closetClearance, closetLabel, closetRecessRect, doorClearanceFor, doorwayPolygon, fractionInCloset, isSide, polygonOnFloor, wallStripPolygon, fractionInRoom, gapBetween, isRugKind, itemsGap, itemsIntersect, overlapArea, polygonIntersectsRect, polygonOf, polygonsIntersect, rectOf, wallStripRect, type AccessZone } from './geometry'
 import type { Check, Item, Rect, Room, Wall } from './types'
 
 const MIN_PASSAGE = 60
@@ -100,7 +100,7 @@ export function runChecks(room: Room, items: Item[], opts: CheckOptions = {}): C
   // 1. Items poking through walls (the turned corners, so an angled piece is judged by its real outline) or the ceiling
   for (const it of inRoom) {
     const poly = polygonOf(it)
-    if (!polygonInRoom(room, poly)) {
+    if (!polygonOnFloor(room, poly)) {
       checks.push({ level: 'bad', text: `${it.name} goes through a wall`, itemIds: [it.id] })
     }
     if (it.h > room.h + 0.5) {
@@ -241,10 +241,25 @@ export function runChecks(room: Room, items: Item[], opts: CheckOptions = {}): C
 
   // 7. Closets: the doors need room to open (or you need room to reach in)
   const closets = room.closets ?? []
+  // Furniture may stand in a closet: wholly inside is fine; sticking out through the opening is fine
+  // without doors (half a desk in a doorless closet) but keeps doors from closing.
   closets.forEach((closet, i) => {
     const label = closetLabel(i, closets.length)
     const clear = closetClearance(room, closet)
+    const recess = closetRecessRect(room, closet)
     for (const it of solid) {
+      const r = rectOf(it)
+      const reaches = r.x1 > recess.x0 + 0.5 && r.x0 < recess.x1 - 0.5 && r.y1 > recess.y0 + 0.5 && r.y0 < recess.y1 - 0.5
+      const inside = reaches ? fractionInCloset(room, closet, polygonOf(it)) : 0
+      if (inside > 0.98) {
+        checks.push({ level: 'ok', text: `${it.name} fits inside ${label}`, itemIds: [it.id] })
+        continue
+      }
+      if (inside > 0.02) {
+        if (closet.doors === 'none') continue // using the closet, not standing in front of it
+        checks.push({ level: 'warn', text: `${it.name} sticks out of ${label}: its doors can't close`, itemIds: [it.id] })
+        continue
+      }
       if (polygonIntersectsRect(polygonOf(it), clear.rect)) checks.push({ level: clear.level, text: clear.text(it.name, label), itemIds: [it.id] })
     }
   })

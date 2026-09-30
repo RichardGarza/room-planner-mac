@@ -515,7 +515,8 @@ export function closetOpeningRect(room: Room, closet: Closet, depth = 0): Rect {
 export function closetRecessRect(room: Room, closet: Closet): Rect {
   if (!isSide(closet.wall)) return polygonBounds(closetRecessPolygon(room, closet))
   const { normal } = sideAxes(closet.wall)
-  const strip = closetOpeningRect(room, closet, 0)
+  const inside = closetInside(closet)
+  const strip = wallStripRect(room, closet.wall, inside.offset, inside.width, 0)
   const dx = -normal[0] * closet.depth, dy = -normal[1] * closet.depth
   return {
     x0: Math.min(strip.x0, strip.x0 + dx), y0: Math.min(strip.y0, strip.y0 + dy),
@@ -524,8 +525,74 @@ export function closetRecessRect(room: Room, closet: Closet): Rect {
 }
 
 /** The recess as a polygon: exact on a slanted wall too. */
-export function closetRecessPolygon(room: Room, closet: Closet): Polygon {
-  return wallStripPolygon(room, closet.wall, closet.offset, closet.width, -closet.depth)
+export function closetRecessPolygon(room: Pick<Room, 'w' | 'd' | 'outline'>, closet: Closet): Polygon {
+  const inside = closetInside(closet)
+  return wallStripPolygon(room, closet.wall, inside.offset, inside.width, -closet.depth)
+}
+
+/** Where the inside of a closet runs along its wall: its own span for a walk-in, else the opening's. */
+export function closetInside(closet: Closet): { offset: number; width: number } {
+  return closet.inside ?? { offset: closet.offset, width: closet.width }
+}
+
+/** The box around the room and its closets: everywhere furniture can stand. */
+export function floorBounds(room: Room): Rect {
+  const b = { x0: 0, y0: 0, x1: room.w, y1: room.d }
+  for (const c of room.closets ?? []) {
+    const r = closetRecessRect(room, c)
+    b.x0 = Math.min(b.x0, r.x0); b.y0 = Math.min(b.y0, r.y0); b.x1 = Math.max(b.x1, r.x1); b.y1 = Math.max(b.y1, r.y1)
+  }
+  return b
+}
+
+/**
+ * True when a piece stands on floor: in the room, or partly or wholly inside a closet, as long as
+ * it only passes into the closet through its opening (not through the wall beside it). Pieces are
+ * sampled every 10 cm along their outline; 0.5 cm of slack everywhere.
+ */
+export function polygonOnFloor(room: Room, poly: Polygon): boolean {
+  const closets = room.closets ?? []
+  if (!closets.length) return polygonInRoom(room, poly)
+  if (polygonInRoom(room, poly)) return true
+  const recesses = closets.map((c) => closetRecessPolygon(room, c))
+  const onFloor = ([x, y]: [number, number]) =>
+    pointInRoom(room, x, y) || distanceToWalls(room, x, y) <= 0.5 ||
+    recesses.some((r) => pointInPolygon(x, y, r) || distanceToWalls({ w: Infinity, d: Infinity, outline: r }, x, y) <= 0.5)
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length]
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 10))
+    for (let k = 0; k < steps; k++) if (!onFloor([a[0] + ((b[0] - a[0]) * k) / steps, a[1] + ((b[1] - a[1]) * k) / steps])) return false
+  }
+  // the wall beside a walk-in's opening stays solid
+  const within = (x: number, y: number) => pointInPolygon(x, y, poly) && distanceToWalls({ w: Infinity, d: Infinity, outline: poly }, x, y) > 0.5
+  for (const c of closets) {
+    const inside = closetInside(c)
+    for (const [t0, t1] of [[inside.offset, c.offset], [c.offset + c.width, inside.offset + inside.width]]) {
+      for (let t = t0; t <= t1; t += 2) {
+        const [x, y] = wallPoint(room, c.wall, t)
+        if (within(x, y)) return false
+      }
+    }
+  }
+  // a corner of a drawn room poking into the piece
+  return !room.outline || !room.outline.some(([x, y]) => within(x, y))
+}
+
+/** How much of a piece stands inside a closet (0 to 1 of its footprint), by sampling a 5 cm grid. */
+export function fractionInCloset(room: Room, closet: Closet, poly: Polygon): number {
+  const recess = closetRecessPolygon(room, closet)
+  const b = polygonBounds(poly)
+  const rb = polygonBounds(recess)
+  if (b.x1 <= rb.x0 || b.x0 >= rb.x1 || b.y1 <= rb.y0 || b.y0 >= rb.y1) return 0
+  let total = 0, inside = 0
+  for (let x = b.x0 + 2.5; x < b.x1; x += 5) {
+    for (let y = b.y0 + 2.5; y < b.y1; y += 5) {
+      if (!pointInPolygon(x, y, poly)) continue
+      total++
+      if (pointInPolygon(x, y, recess)) inside++
+    }
+  }
+  return total ? inside / total : 0
 }
 
 /** How deep the floor in front of a closet must stay free for its doors to work (or for you to reach in). */
@@ -748,12 +815,17 @@ export function itemsGap(a: Item, b: Item) {
 }
 
 /** How much of a rect lies inside the room (0..1). */
-export function fractionInRoom(room: Pick<Room, 'w' | 'd' | 'outline'>, r: Rect) {
+export function fractionInRoom(room: Pick<Room, 'w' | 'd' | 'outline' | 'closets'>, r: Rect) {
   const area = (r.x1 - r.x0) * (r.y1 - r.y0)
   if (area <= 0) return 1
-  if (!room.outline) return overlapArea(r, { x0: 0, y0: 0, x1: room.w, y1: room.d }) / area
-  // the floor inside the rect: the outline clipped to it
-  return polygonRectOverlap(room.outline, r) / area
+  // the floor inside the rect: the room (its outline clipped to the rect), plus the closets' floors
+  let floor = room.outline ? polygonRectOverlap(room.outline, r) : overlapArea(r, { x0: 0, y0: 0, x1: room.w, y1: room.d })
+  for (const c of room.closets ?? []) {
+    const box = closetRecessRect(room as Room, c)
+    if (box.x1 <= r.x0 || box.x0 >= r.x1 || box.y1 <= r.y0 || box.y0 >= r.y1) continue // a hot path in the suggestions
+    floor += polygonRectOverlap(closetRecessPolygon(room, c), r)
+  }
+  return Math.min(1, floor / area)
 }
 
 /** Area of a polygon inside a rect: the polygon clipped to the rect (Sutherland–Hodgman), then its area. */

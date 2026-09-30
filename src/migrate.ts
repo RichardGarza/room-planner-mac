@@ -76,6 +76,10 @@ function fixCloset(raw: unknown, base: Closet): Unkeyed<Closet> {
     doors: CLOSET_DOORS.includes(o.doors as Closet['doors']) ? (o.doors as Closet['doors']) : base.doors,
   }
   if (typeof o.height === 'number' && Number.isFinite(o.height)) closet.height = o.height
+  const inside = o.inside as { offset?: unknown; width?: unknown } | undefined
+  if (inside && typeof inside === 'object' && typeof inside.offset === 'number' && typeof inside.width === 'number' && Number.isFinite(inside.offset) && inside.width > 0) {
+    closet.inside = { offset: inside.offset, width: inside.width }
+  }
   return closet
 }
 

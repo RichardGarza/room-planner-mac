@@ -82,9 +82,9 @@ describe('migrateRoom and sanitizeRoom with closets', () => {
     expect(migrateRoom(defaultRoom)).toEqual(defaultRoom)
   })
 
-  it('clamps a closet onto its wall and its depth to 30–120', () => {
-    const r = sanitizeRoom(room({ closets: [closet({ offset: 380, width: 160, depth: 200 }), closet({ id: 'c2', wall: 'top', offset: -20, width: 500, depth: 5, height: 500 })] }))
-    expect(r.closets[0]).toMatchObject({ offset: 240, width: 160, depth: 120 })
+  it('clamps a closet onto its wall and its depth to 30–400 (a walk-in can be deep)', () => {
+    const r = sanitizeRoom(room({ closets: [closet({ offset: 380, width: 160, depth: 500 }), closet({ id: 'c2', wall: 'top', offset: -20, width: 500, depth: 5, height: 500 })] }))
+    expect(r.closets[0]).toMatchObject({ offset: 240, width: 160, depth: 400 })
     expect(r.closets[1]).toMatchObject({ offset: 0, width: 300, depth: 30, height: 255 })
   })
 })
@@ -109,7 +109,7 @@ describe('store: closets as openings', () => {
 
     s.updateOpening('closet', id, { doors: 'sliding', depth: 500 })
     r = useStore.getState().room
-    expect(r.closets.find((x) => x.id === id)).toMatchObject({ doors: 'sliding', depth: 120 })
+    expect(r.closets.find((x) => x.id === id)).toMatchObject({ doors: 'sliding', depth: 400 })
 
     // a second closet does not land on the first
     const id2 = s.addOpening('closet')
@@ -170,5 +170,51 @@ describe("Forest's Room closet", () => {
     expect(doc.room.closets[0].offset + doc.room.closets[0].width).toBeLessThanOrEqual(doc.room.d)
     const checks = runChecks(doc.room, doc.items)
     expect(checks.filter((c) => /closet/.test(c.text))).toEqual([])
+  })
+})
+
+describe('furniture in closets', () => {
+  // a 300 × 400 room with a 150 cm closet, 60 deep, on the right wall from 100 to 250
+  const withCloset = (doors: Closet['doors'], inside?: Closet['inside']) =>
+    sanitizeRoom(room({ closets: [closet({ wall: 'right', offset: 100, width: 150, depth: 60, doors, ...(inside ? { inside } : {}) })] }))
+  const desk = (x: number, y: number): Item => ({ id: 'desk', name: 'Desk', kind: 'desk', w: 120, d: 60, h: 75, x, y, rot: 90, color: '#ccc', inRoom: true })
+  const texts = (r: Room, items: Item[]) => runChecks(r, items).map((c) => `${c.level}: ${c.text}`)
+
+  it('lets half a desk slide into a closet with no doors', () => {
+    const r = withCloset('none')
+    // turned 90°, the desk is 60 across: from x 270 to 330, 30 cm of it in the closet
+    const t = texts(r, [desk(300, 175)])
+    expect(t.some((x) => x.includes('goes through a wall'))).toBe(false)
+    expect(t.some((x) => x.includes('closet'))).toBe(false)
+  })
+
+  it('warns that closet doors cannot close on something sticking out', () => {
+    const t = texts(withCloset('bifold'), [desk(300, 175)])
+    expect(t).toContain("warn: Desk sticks out of the closet: its doors can't close")
+  })
+
+  it('takes a piece standing wholly inside', () => {
+    const t = texts(withCloset('sliding'), [{ ...desk(329, 175), w: 100, d: 40 }])
+    expect(t).toContain('ok: Desk fits inside the closet')
+    expect(t.some((x) => x.includes('goes through a wall'))).toBe(false)
+  })
+
+  it('keeps the wall beside a walk-in opening solid', () => {
+    const r = withCloset('none', { offset: 40, width: 300 })
+    // wholly inside the walk-in, beside the opening: fine
+    expect(texts(r, [{ ...desk(335, 95), w: 100, d: 40 }]).some((x) => x.includes('goes through a wall'))).toBe(false)
+    // straddling the wall line beside the opening: through the wall
+    expect(texts(r, [desk(300, 70)]).some((x) => x.includes('Desk goes through a wall'))).toBe(true)
+  })
+
+  it('lets a dragged piece go into a closet', () => {
+    const s = useStore.getState()
+    s.setRoom(withCloset('none'))
+    const id = s.addItem({ name: 'Desk', kind: 'desk', w: 120, d: 60, h: 75, color: '#ccc' })
+    s.setRotation(id, 90)
+    s.dragTo(id, 330, 175)
+    const it = useStore.getState().items.find((i) => i.id === id)!
+    expect(it.inRoom).toBe(true)
+    expect(it.x).toBe(330)
   })
 })

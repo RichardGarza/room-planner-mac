@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { closetClearanceDepth, doorSwing, edgeIndex, footprint, frontRecessPad, isAxisAligned, isSide, normalizeRot, rectOf, roomPolygon, roomWalls, wallAxes, wallLength, wallPoint, wallStripRect } from '../geometry'
+import { closetClearanceDepth, closetInside, doorSwing, wallStripPolygon, edgeIndex, footprint, frontRecessPad, isAxisAligned, isSide, normalizeRot, rectOf, roomPolygon, roomWalls, wallAxes, wallLength, wallPoint, wallStripRect } from '../geometry'
 import { isRugKind } from '../placement'
 import { useStore } from '../store'
 import type { AnyWall, Closet, Door, Item, Room, Wall } from '../types'
@@ -102,6 +102,9 @@ export function FloorPlan() {
           return <rect key={rad.id} x={r.x0} y={r.y0} width={r.x1 - r.x0} height={r.y1 - r.y0} fill="url(#hatch)" stroke="#a89f95" strokeWidth={0.8} />
         })}
 
+        {/* closet floors: furniture can stand in them, so they go under it */}
+        {(room.closets ?? []).map((c) => <ClosetPlan key={c.id} room={room} closet={c} part="floor" />)}
+
         {/* rugs first, then solid items */}
         {items.filter((i) => i.inRoom && isRugKind(i.kind)).map((it) => (
           <PlanItem key={it.id} item={it} selected={it.id === selectedId} onDown={onDown} toRoom={toRoom} />
@@ -113,14 +116,18 @@ export function FloorPlan() {
         {/* door swings (an out-swinging door draws its arc outside the room) */}
         {room.doors.map((door) => <DoorSwing key={door.id} room={room} door={door} />)}
 
-        {/* walls, angled ones across cut corners included */}
-        <polygon points={outline} fill="none" stroke="#3f3833" strokeWidth={6} strokeLinejoin="miter" />
+        {/* walls, open across each closet opening so what stands in the doorway shows */}
+        <mask id="plan-closet-gaps" maskUnits="userSpaceOnUse" x={-M} y={-M} width={W + M} height={H + M}>
+          <rect x={-M} y={-M} width={W + M} height={H + M} fill="#fff" />
+          {(room.closets ?? []).map((c) => <polygon key={c.id} points={openingBand(room, c).map((p) => p.join(',')).join(' ')} fill="#000" />)}
+        </mask>
+        <polygon points={outline} fill="none" stroke="#3f3833" strokeWidth={6} strokeLinejoin="miter" mask="url(#plan-closet-gaps)" />
         {/* windows */}
         {room.windows.map((win) => <Opening key={win.id} room={room} wall={win.wall} offset={win.offset} width={win.width} kind="window" />)}
         {/* door openings */}
         {room.doors.map((door) => <Opening key={door.id} room={room} wall={door.wall} offset={door.offset} width={door.width} kind="door" />)}
-        {/* closets: recess outside the wall, the opening, its doors and the floor they need */}
-        {(room.closets ?? []).map((c) => <ClosetPlan key={c.id} room={room} closet={c} />)}
+        {/* closets: the jambs, the doors and the floor they need, over the furniture */}
+        {(room.closets ?? []).map((c) => <ClosetPlan key={c.id} room={room} closet={c} part="marks" />)}
 
         {/* dimension lines for the selection */}
         {sel && sel.inRoom && <DimLines item={sel} roomW={room.w} roomD={room.d} />}
@@ -215,7 +222,14 @@ function arcPath(hx: number, hy: number, r: number, leafDir: (deg: number) => [n
  * the doors by type (hinged leaves with their arcs, bi-fold chevrons, sliding bars, or nothing)
  * and a faint dashed rect for the floor that must stay clear in front of it.
  */
-function ClosetPlan({ room, closet: c }: { room: Room; closet: Closet }) {
+/** The band 8 cm either side of a closet's opening: where the wall line is left out. */
+function openingBand(room: Room, c: Closet): [number, number][] {
+  const inward = wallStripPolygon(room, c.wall, c.offset, c.width, 8), outward = wallStripPolygon(room, c.wall, c.offset, c.width, -8)
+  return [outward[3], outward[2], inward[2], inward[3]]
+}
+
+/** A closet on the plan: its floor (drawn under the furniture) or its marks (jambs, doors, clearance, label; over it). */
+function ClosetPlan({ room, closet: c, part }: { room: Room; closet: Closet; part: 'floor' | 'marks' }) {
   const { along, normal } = wallAxes(c.wall, room)
   const [x0, y0] = wallPoint(room, c.wall, c.offset)
   const clearDepth = closetClearanceDepth(c)
@@ -225,18 +239,26 @@ function ClosetPlan({ room, closet: c }: { room: Room; closet: Closet }) {
   const w = c.width
   const half = w / 2
   const wallHalf = 3
+  // the inside, which reaches past the opening on either side in a walk-in (u runs along the wall from the opening's start)
+  const inside = closetInside(c)
+  const u0 = inside.offset - c.offset, u1 = u0 + inside.width
   // label towards the back of the recess so it stays clear of the wall's own label, turned with the wall
-  const [lx, ly] = pt(half, -Math.max(c.depth * 0.7, c.depth - 14) - wallHalf)
+  const [lx, ly] = pt((u0 + u1) / 2, -Math.max(c.depth * 0.7, c.depth - 14) - wallHalf)
   const labelRot = readableAngle(along)
   const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ')
+  if (part === 'floor') {
+    return (
+      <g className="closet">
+        {/* the inside, from the wall line back (the wall stroke covers its edge beside a walk-in's opening) */}
+        <polygon points={poly([pt(u0, 0), pt(u1, 0), pt(u1, -wallHalf - c.depth), pt(u0, -wallHalf - c.depth)])} fill="#f6f1ea" />
+        <polyline points={poly([pt(u0, -wallHalf), pt(u0, -wallHalf - c.depth), pt(u1, -wallHalf - c.depth), pt(u1, -wallHalf)])} fill="none" stroke="#8f867d" strokeWidth={0.8} />
+        {/* floor that stays free in front */}
+        <polygon points={poly([pt(0, 0), pt(w, 0), pt(w, clearDepth), pt(0, clearDepth)])} fill="#8f867d" fillOpacity={0.05} stroke="#c9bfb4" strokeWidth={0.8} strokeDasharray="3 3" />
+      </g>
+    )
+  }
   return (
-    <g className="closet">
-      {/* the recess beyond the wall (the wall stroke covers its inner edge) */}
-      <polygon points={poly([pt(0, -wallHalf), pt(w, -wallHalf), pt(w, -wallHalf - c.depth), pt(0, -wallHalf - c.depth)])} fill="#f6f1ea" stroke="#8f867d" strokeWidth={0.8} />
-      {/* floor that stays free in front */}
-      <polygon points={poly([pt(0, 0), pt(w, 0), pt(w, clearDepth), pt(0, clearDepth)])} fill="#8f867d" fillOpacity={0.05} stroke="#c9bfb4" strokeWidth={0.8} strokeDasharray="3 3" />
-      {/* the opening: a gap in the wall */}
-      <polygon points={poly([pt(0, -4), pt(w, -4), pt(w, 4), pt(0, 4)])} fill="#f6f1ea" />
+    <g className="closet" pointerEvents="none">
       <line x1={pt(0, -wallHalf)[0]} y1={pt(0, -wallHalf)[1]} x2={pt(0, wallHalf)[0]} y2={pt(0, wallHalf)[1]} stroke="#3f3833" strokeWidth={1.2} />
       <line x1={pt(w, -wallHalf)[0]} y1={pt(w, -wallHalf)[1]} x2={pt(w, wallHalf)[0]} y2={pt(w, wallHalf)[1]} stroke="#3f3833" strokeWidth={1.2} />
       {c.doors === 'hinged' && (

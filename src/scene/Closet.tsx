@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { useMemo } from 'react'
-import { CLOSET_HEIGHT, wallFacing } from '../geometry'
+import { CLOSET_HEIGHT, closetInside, fractionInCloset, isRugKind, polygonOf, wallFacing } from '../geometry'
 import { useStore } from '../store'
 import type { Closet as ClosetSpec, Room } from '../types'
 import { brushed, chrome, paint, wallMat, type Detail } from './Shell'
@@ -39,11 +39,16 @@ const shadeMat = () => new THREE.MeshBasicMaterial({ color: '#2a2420', transpare
 export function Closet({ room, closet: c, detail }: { room: Room; closet: ClosetSpec; detail: Detail }) {
   const doorAngle = useStore((s) => s.doorAngle)
   const view = useStore((s) => s.view)
+  // furniture standing in the closet: the rail and the clothes make way for it (the shelf stays)
+  const occupied = useStore((s) => s.items.some((it) => it.inRoom && !isRugKind(it.kind) && fractionInCloset(room, c, polygonOf(it)) > 0.02))
+  // the opening (doors, jambs) and the inside (recess, floor, shelf, rail), which is wider in a walk-in
   const x0 = cm(c.offset), ww = cm(c.width), dd = cm(c.depth), hh = cm(c.height ?? CLOSET_HEIGHT), H = cm(room.h)
   const cx = x0 + ww / 2
+  const inside = closetInside(c)
+  const ix0 = cm(inside.offset), iww = cm(inside.width), icx = ix0 + iww / 2
   const zMid = -dd / 2
   const phi = (doorAngle * Math.PI) / 180
-  const inside = wallMat('#f4f1eb', detail)
+  const insideMat = wallMat('#f4f1eb', detail)
   const outside = wallMat(room.wallColors[wallFacing(room, c.wall)], detail)
   const trim = paint('#fbfaf7', 0.5)
   const leafPaint = paint('#f9f7f3', 0.5)
@@ -55,12 +60,12 @@ export function Closet({ room, closet: c, detail }: { room: Room; closet: Closet
 
   // recess shell: floor, back wall and two sides (boxes, so the outside faces read as wall from behind)
   const shell = useMemo(() => ({
-    back: mergedBoxes([[cx, H / 2, -dd - WALL_T / 2, ww + 2 * WALL_T, H, WALL_T]]),
+    back: mergedBoxes([[icx, H / 2, -dd - WALL_T / 2, iww + 2 * WALL_T, H, WALL_T]]),
     sides: mergedBoxes([
-      [x0 - WALL_T / 2, H / 2, (-dd - WALL_T) / 2, WALL_T, H, dd - WALL_T],
-      [x0 + ww + WALL_T / 2, H / 2, (-dd - WALL_T) / 2, WALL_T, H, dd - WALL_T],
+      [ix0 - WALL_T / 2, H / 2, (-dd - WALL_T) / 2, WALL_T, H, dd - WALL_T],
+      [ix0 + iww + WALL_T / 2, H / 2, (-dd - WALL_T) / 2, WALL_T, H, dd - WALL_T],
     ]),
-  }), [cx, x0, ww, dd, H])
+  }), [icx, ix0, iww, dd, H])
   useDisposable(useMemo(() => [shell.back, shell.sides], [shell]))
 
   // jamb lining through the wall thickness and an architrave on the room face
@@ -80,11 +85,11 @@ export function Closet({ room, closet: c, detail }: { room: Room; closet: Closet
   const rodY = Math.min(ROD_Y, shelfY - 0.18)
   const rodZ = zMid - 0.02
   const hangers = useMemo(() => {
-    const n = Math.max(0, Math.min(7, Math.floor((ww - 0.3) / 0.11)))
-    const start = x0 + 0.2
+    const n = Math.max(0, Math.min(7, Math.floor((iww - 0.3) / 0.11)))
+    const start = ix0 + 0.2
     const metalBoxes: BoxSpec[] = [
-      [x0 + 0.03, rodY, rodZ, 0.03, 0.05, 0.05],
-      [x0 + ww - 0.03, rodY, rodZ, 0.03, 0.05, 0.05],
+      [ix0 + 0.03, rodY, rodZ, 0.03, 0.05, 0.05],
+      [ix0 + iww - 0.03, rodY, rodZ, 0.03, 0.05, 0.05],
     ]
     const clothes: { color: string; x: number; h: number; w: number }[] = []
     for (let i = 0; i < n; i++) {
@@ -94,7 +99,7 @@ export function Closet({ room, closet: c, detail }: { room: Room; closet: Closet
       if (i % 2 === 0) clothes.push({ color: GARMENTS[(i / 2) % GARMENTS.length], x, h: 0.62 + ((i * 7) % 3) * 0.12, w: Math.min(0.4, dd - 0.14) })
     }
     return { metal: mergedBoxes(metalBoxes), clothes }
-  }, [ww, dd, x0, rodY, rodZ])
+  }, [iww, dd, ix0, rodY, rodZ])
   useDisposable(hangers.metal)
 
   const q = ww / 4
@@ -105,25 +110,28 @@ export function Closet({ room, closet: c, detail }: { room: Room; closet: Closet
       {/* the recess */}
       <mesh geometry={shell.back} material={outside} castShadow receiveShadow />
       <mesh geometry={shell.sides} material={outside} castShadow receiveShadow />
-      <mesh position={[cx, H / 2, -dd + 0.002]} material={inside} receiveShadow><planeGeometry args={[ww, H]} /></mesh>
-      <mesh position={[x0 + 0.002, H / 2, (-dd - WALL_T) / 2]} rotation={[0, Math.PI / 2, 0]} material={inside} receiveShadow><planeGeometry args={[dd - WALL_T, H]} /></mesh>
-      <mesh position={[x0 + ww - 0.002, H / 2, (-dd - WALL_T) / 2]} rotation={[0, -Math.PI / 2, 0]} material={inside} receiveShadow><planeGeometry args={[dd - WALL_T, H]} /></mesh>
-      <mesh position={[cx, 0.001, zMid]} rotation={[-Math.PI / 2, 0, 0]} material={floor} receiveShadow><planeGeometry args={[ww, dd]} /></mesh>
+      <mesh position={[icx, H / 2, -dd + 0.002]} material={insideMat} receiveShadow><planeGeometry args={[iww, H]} /></mesh>
+      <mesh position={[ix0 + 0.002, H / 2, (-dd - WALL_T) / 2]} rotation={[0, Math.PI / 2, 0]} material={insideMat} receiveShadow><planeGeometry args={[dd - WALL_T, H]} /></mesh>
+      <mesh position={[ix0 + iww - 0.002, H / 2, (-dd - WALL_T) / 2]} rotation={[0, -Math.PI / 2, 0]} material={insideMat} receiveShadow><planeGeometry args={[dd - WALL_T, H]} /></mesh>
+      {/* in a walk-in, the back of the room wall on either side of the opening */}
+      {ix0 < x0 && <mesh position={[(ix0 + x0) / 2, H / 2, -WALL_T - 0.002]} rotation={[0, Math.PI, 0]} material={insideMat} receiveShadow><planeGeometry args={[x0 - ix0, H]} /></mesh>}
+      {ix0 + iww > x0 + ww && <mesh position={[(x0 + ww + ix0 + iww) / 2, H / 2, -WALL_T - 0.002]} rotation={[0, Math.PI, 0]} material={insideMat} receiveShadow><planeGeometry args={[ix0 + iww - x0 - ww, H]} /></mesh>}
+      <mesh position={[icx, 0.001, zMid]} rotation={[-Math.PI / 2, 0, 0]} material={floor} receiveShadow><planeGeometry args={[iww, dd]} /></mesh>
       {view === 'walk' && (
-        <mesh position={[cx, H - 0.001, zMid]} rotation={[Math.PI / 2, 0, 0]} material={paint('#f3efe9', 1)}><planeGeometry args={[ww, dd]} /></mesh>
+        <mesh position={[icx, H - 0.001, zMid]} rotation={[Math.PI / 2, 0, 0]} material={paint('#f3efe9', 1)}><planeGeometry args={[iww, dd]} /></mesh>
       )}
       {/* soft shade on the floor and the back wall */}
-      <mesh position={[cx, 0.004, zMid]} rotation={[-Math.PI / 2, 0, Math.PI]} material={shade}><planeGeometry args={[ww, dd]} /></mesh>
-      <mesh position={[cx, 0.35, -dd + 0.006]} rotation={[0, 0, Math.PI]} material={shade}><planeGeometry args={[ww, 0.7]} /></mesh>
+      <mesh position={[icx, 0.004, zMid]} rotation={[-Math.PI / 2, 0, Math.PI]} material={shade}><planeGeometry args={[iww, dd]} /></mesh>
+      <mesh position={[icx, 0.35, -dd + 0.006]} rotation={[0, 0, Math.PI]} material={shade}><planeGeometry args={[iww, 0.7]} /></mesh>
       {/* jamb, architrave, threshold */}
       <mesh geometry={jamb} material={trim} receiveShadow />
       <mesh geometry={architrave} material={trim} castShadow receiveShadow />
       <mesh position={[cx, 0.006, -WALL_T / 2]} material={paint('#c9b79c', 0.6)}><boxGeometry args={[ww, 0.012, WALL_T + 0.02]} /></mesh>
       {/* shelf, rod, hangers, clothes */}
-      <mesh position={[cx, shelfY, (-dd - WALL_T) / 2]} material={trim} castShadow receiveShadow><boxGeometry args={[ww, 0.022, Math.max(0.1, dd - WALL_T - 0.04)]} /></mesh>
-      <mesh position={[cx, rodY, rodZ]} rotation={[0, 0, Math.PI / 2]} material={rod} castShadow><cylinderGeometry args={[0.014, 0.014, ww - 0.02, 12]} /></mesh>
-      <mesh geometry={hangers.metal} material={metal} castShadow />
-      {hangers.clothes.map((g, i) => (
+      <mesh position={[icx, shelfY, (-dd - WALL_T) / 2]} material={trim} castShadow receiveShadow><boxGeometry args={[iww, 0.022, Math.max(0.1, dd - WALL_T - 0.04)]} /></mesh>
+      {!occupied && <mesh position={[icx, rodY, rodZ]} rotation={[0, 0, Math.PI / 2]} material={rod} castShadow><cylinderGeometry args={[0.014, 0.014, iww - 0.02, 12]} /></mesh>}
+      {!occupied && <mesh geometry={hangers.metal} material={metal} castShadow />}
+      {!occupied && hangers.clothes.map((g, i) => (
         <mesh key={i} position={[g.x, rodY - 0.085 - g.h / 2, rodZ]} material={paint(g.color, 0.95)} castShadow receiveShadow>
           <boxGeometry args={[0.035, g.h, g.w]} />
         </mesh>

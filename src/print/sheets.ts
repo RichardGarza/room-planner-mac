@@ -1,4 +1,4 @@
-import { doorSwing, isRugKind, isSide, offsetPolygon, rectOf, roomPolygon, wallAxes, wallPoint, wallStripRect } from '../geometry'
+import { closetInside, closetRecessPolygon, doorSwing, floorBounds, isRugKind, isSide, offsetPolygon, rectOf, roomPolygon, wallAxes, wallPoint, wallStripRect } from '../geometry'
 import type { AnyWall, Door, Item, Opening, Room, Wall } from '../types'
 import type { Unit } from '../units'
 import { asciiLength, asciiSize, asciiText, checkBar, dateText, scaleNote } from './labels'
@@ -140,11 +140,14 @@ export interface RoomPlacement {
 function roomPads(room: Room, k: number) {
   const outSwing = (wall: Wall) => Math.max(0, ...room.doors.filter((d) => d.swing === 'out' && d.wall === wall).map((d) => d.width * k + 2))
   const wt = wallThickness(k)
+  // closets reach out past the walls
+  const fb = floorBounds(room)
+  const out = { l: -fb.x0 * k, t: -fb.y0 * k, r: (fb.x1 - room.w) * k, b: (fb.y1 - room.d) * k }
   return {
-    l: Math.max(wt + 7, outSwing('left')),
-    t: Math.max(wt + 7, outSwing('top')),
-    r: Math.max(wt + DIM_OFF + 5.5, outSwing('right')),
-    b: Math.max(wt + DIM_OFF + 5.5, outSwing('bottom')),
+    l: Math.max(wt + 7, outSwing('left'), out.l + wt + 2),
+    t: Math.max(wt + 7, outSwing('top'), out.t + wt + 2),
+    r: Math.max(wt + DIM_OFF + 5.5, outSwing('right')) + out.r,
+    b: Math.max(wt + DIM_OFF + 5.5, outSwing('bottom')) + out.b,
   }
 }
 
@@ -252,6 +255,12 @@ export function drawRoom(room: Room, p: RoomPlacement, unit: Unit, opts: { hint?
     out.push(rect(b, `fill="url(#rp-hatch)" stroke="#9a8f86" stroke-width="0.25"`))
   }
 
+  // closets: the inside beyond the wall, as floor (furniture may stand in it)
+  for (const c of room.closets ?? []) {
+    const pts = closetRecessPolygon(room, c).map(([x, y]): [number, number] => [ox + x * k, oy + y * k])
+    out.push(polygonSvg(pts, `fill="#fdfbf8" stroke="${INK}" stroke-width="0.35"`))
+  }
+
   // walls: the outline pushed out by the wall thickness, minus the outline (cut corners included)
   const inner = roomPolygon(room).map(([x, y]): [number, number] => [ox + x * k, oy + y * k])
   const ring = (pts: [number, number][]) => `M ${pts.map(([x, y]) => `${r2(x)} ${r2(y)}`).join(' L ')} Z`
@@ -289,13 +298,24 @@ export function drawRoom(room: Room, p: RoomPlacement, unit: Unit, opts: { hint?
     out.push(wallText(p, room, door.wall, door.offset + door.width / 2, doorLabel(door, unit), dist))
   }
 
-  // overall dimensions: right and bottom
+  // closets: the opening through the wall and a label inside
+  for (const c of room.closets ?? []) {
+    out.push(polygonSvg(wallBand(p, room, c.wall, c.offset, c.width), `fill="#fdfbf8"`))
+    const inside = closetInside(c)
+    const { normal } = wallAxes(c.wall, room)
+    const [mx, my] = wallPoint(room, c.wall, inside.offset + inside.width / 2)
+    const depth = c.depth * k / 2 + WT / 2
+    out.push(text(ox + mx * k - normal[0] * depth, oy + my * k - normal[1] * depth + F_MIN * 0.35, 'Closet', { size: F_MIN, anchor: 'middle', fill: MUTED }))
+  }
+
+  // overall dimensions: right and bottom, clear of closets that stick out on those sides
+  const fb = floorBounds(room)
   const dimStroke = INK
-  const xr = ox + W + WT + DIM_OFF
+  const xr = ox + Math.max(W, fb.x1 * k) + WT + DIM_OFF
   out.push(line(ox + W + WT + 1, oy, xr + 1.5, oy, RULE, 0.2), line(ox + W + WT + 1, oy + D, xr + 1.5, oy + D, RULE, 0.2))
   out.push(line(xr, oy, xr, oy + D, dimStroke, 0.3), line(xr - 1.2, oy, xr + 1.2, oy, dimStroke, 0.3), line(xr - 1.2, oy + D, xr + 1.2, oy + D, dimStroke, 0.3))
   out.push(text(xr + 1.2 + F_BODY * 0.75, oy + D / 2, asciiLength(room.d, unit, { feet: true }), { size: F_BODY, bold: true, anchor: 'middle', rotate: 90 }))
-  const yb = oy + D + WT + DIM_OFF
+  const yb = oy + Math.max(D, fb.y1 * k) + WT + DIM_OFF
   out.push(line(ox, oy + D + WT + 1, ox, yb + 1.5, RULE, 0.2), line(ox + W, oy + D + WT + 1, ox + W, yb + 1.5, RULE, 0.2))
   out.push(line(ox, yb, ox + W, yb, dimStroke, 0.3), line(ox, yb - 1.2, ox, yb + 1.2, dimStroke, 0.3), line(ox + W, yb - 1.2, ox + W, yb + 1.2, dimStroke, 0.3))
   out.push(text(ox + W / 2, yb + 1.2 + F_BODY * 0.75, asciiLength(room.w, unit, { feet: true }), { size: F_BODY, bold: true, anchor: 'middle' }))

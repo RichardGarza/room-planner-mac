@@ -76,18 +76,28 @@ export interface Radiator {
 
 export type ClosetDoors = 'none' | 'hinged' | 'bifold' | 'sliding'
 
-/** A recess in a wall behind an opening. Its front (the doors) sits on the wall line; the recess lies outside the room. */
+/**
+ * A recess in a wall behind an opening. Its front (the doors) sits on the wall line; the recess
+ * lies outside the room, and its floor is floor too: furniture can stand in it.
+ */
 export interface Closet {
   id: string
   wall: AnyWall
   /** distance along the wall from its left/top end to the opening's start */
   offset: number
+  /** width of the opening (the doors) */
   width: number
-  /** how far the recess goes back beyond the wall line */
+  /** how far the recess goes back beyond the wall line: its inside depth */
   depth: number
   doors: ClosetDoors
   /** height of the opening (default 203) */
   height?: number
+  /**
+   * A walk-in, or any closet wider inside than its opening: where the inside runs along the wall
+   * (from the wall's start) and how wide it is. It always takes in the opening. Absent: the inside
+   * is exactly as wide as the opening.
+   */
+  inside?: { offset: number; width: number }
 }
 
 export interface Room {

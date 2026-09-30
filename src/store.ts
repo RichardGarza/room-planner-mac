@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { defaultItems, defaultRoom, presetLayouts } from './data'
-import { CLOSET_HEIGHT, clamp, distanceToWalls, edgeIndex, footprint, frontRecessPad, isRugKind, isSide, normalizeRot, pointInRoom, rectOf, roomWalls, wallFacing, wallFrame, wallLength, wallPoint, wallSpan } from './geometry'
+import { CLOSET_HEIGHT, clamp, distanceToWalls, edgeIndex, floorBounds, footprint, frontRecessPad, isRugKind, isSide, normalizeRot, pointInRoom, rectOf, roomWalls, wallFacing, wallFrame, wallLength, wallPoint, wallSpan } from './geometry'
 import { normalizeOutline, placeByPoints, withOutline } from './outline'
 import { migrateRoom, nextOpeningId } from './migrate'
 import { suggestLayouts } from './suggest'
@@ -118,7 +118,7 @@ export function park(room: Room, items: Item[]): Item[] {
   const pad = frontRecessPad(room)
   return items.map((it) => {
     if (it.inRoom) return it
-    if (it.y > room.d + 15 + pad) return it
+    if (it.y > inRoomLimit(room)) return it
     const { fw } = footprint(it)
     const x = 20 + slot * 70 + fw / 2
     slot += 1
@@ -130,10 +130,15 @@ function placementsOf(items: Item[]): Record<string, ItemPlacement> {
   return Object.fromEntries(items.map((i) => [i.id, { x: i.x, y: i.y, rot: i.rot, inRoom: i.inRoom }]))
 }
 
+/** Keep a piece's footprint inside the room's box, or reaching into a closet: closets are floor too. */
 function clampToRoom(room: Room, item: Item, x: number, y: number) {
   const { fw, fd } = footprint(item)
-  return { x: clamp(x, fw / 2, room.w - fw / 2), y: clamp(y, fd / 2, room.d - fd / 2) }
+  const b = floorBounds(room)
+  return { x: clamp(x, b.x0 + fw / 2, b.x1 - fw / 2), y: clamp(y, b.y0 + fd / 2, b.y1 - fd / 2) }
 }
+
+/** Below this y a dragged piece counts as taken out of the room (the parking strip starts 10 cm further down). */
+const inRoomLimit = (room: Room) => room.d + 20 + frontRecessPad(room)
 
 function fitAll(room: Room, items: Item[]): Item[] {
   return park(room, items.map((i) => (i.inRoom ? { ...i, ...clampToRoom(room, i, i.x, i.y) } : i)))
@@ -182,8 +187,17 @@ export function sanitizeRoom(room: Room): Room {
   })
   const closets = (r.closets ?? []).map((o) => {
     const closet = fixOpening(o, 40)
-    const out: Closet = { ...closet, depth: clamp(Math.round(closet.depth), 30, 120) }
+    // up to 4 m deep: a walk-in is a small room of its own
+    const out: Closet = { ...closet, depth: clamp(Math.round(closet.depth), 30, 400) }
     if (out.height !== undefined) out.height = clamp(Math.round(out.height), 100, h - 5)
+    // the inside takes in the whole opening and stays on the wall; one no wider than the opening is dropped
+    if (out.inside) {
+      const len = wallLength(r, out.wall)
+      const start = clamp(Math.round(out.inside.offset), 0, out.offset)
+      const end = clamp(Math.round(out.inside.offset + out.inside.width), out.offset + out.width, Math.floor(len))
+      if (start < out.offset || end > out.offset + out.width) out.inside = { offset: start, width: end - start }
+      else delete out.inside
+    }
     return out
   })
   return { ...r, windows, doors, radiators, closets }
@@ -397,7 +411,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => {
       const it = s.items.find((i) => i.id === id)
       if (!it || it.locked) return s
-      const inRoom = y <= s.room.d + 15
+      const inRoom = y <= inRoomLimit(s.room)
       const pad = frontRecessPad(s.room)
       const pos = inRoom ? clampToRoom(s.room, it, x, y) : { x: clamp(x, 0, s.room.w), y: clamp(y, s.room.d + 30 + pad, s.room.d + 150 + pad) }
       const items = s.items.map((i) => (i.id === id ? { ...i, inRoom, x: Math.round(pos.x), y: Math.round(pos.y) } : i))

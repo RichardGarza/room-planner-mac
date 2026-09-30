@@ -39,8 +39,8 @@ export function ClosetRows() {
             <div className="dims-grid four">
               <WallSelect value={c.wall} onChange={(wall) => patch({ wall })} />
               <label>From corner<LengthInput value={c.offset} min={0} max={wallLen} onCommit={(offset) => patch({ offset })} /></label>
-              <label>Width<LengthInput value={c.width} min={40} max={wallLen} onCommit={(width) => patch({ width })} /></label>
-              <label>Depth<LengthInput value={c.depth} min={30} max={120} onCommit={(depth) => patch({ depth })} /></label>
+              <label>Opening width<LengthInput value={c.width} min={40} max={wallLen} onCommit={(width) => patch({ width })} /></label>
+              <label>Inside depth<LengthInput value={c.depth} min={30} max={400} onCommit={(depth) => patch({ depth })} /></label>
               <label>
                 Doors
                 <select value={c.doors} onChange={(e) => patch({ doors: e.target.value as Closet['doors'] })}>
@@ -48,11 +48,24 @@ export function ClosetRows() {
                 </select>
               </label>
             </div>
+            <label className="check-row">
+              <input type="checkbox" checked={!!c.inside} onChange={(e) => patch({
+                // a walk-in starts 30 cm wider than the opening on each side (sanitizeRoom keeps it on the wall)
+                inside: e.target.checked ? { offset: Math.max(0, c.offset - 30), width: c.width + 60 } : undefined,
+              })} />
+              Walk-in: wider inside than the opening
+            </label>
+            {c.inside && (
+              <div className="dims-grid">
+                <label>Inside width<LengthInput value={c.inside.width} min={c.width} max={wallLen} onCommit={(width) => patch({ inside: { offset: c.inside!.offset, width } })} /></label>
+                <label>Inside from corner<LengthInput value={c.inside.offset} min={0} max={c.offset} onCommit={(offset) => patch({ inside: { offset, width: c.inside!.width + (c.inside!.offset - offset) } })} /></label>
+              </div>
+            )}
           </div>
         )
       })}
       <div className="row"><button className="chip ghost" onClick={() => addOpening('closet')}>+ Add closet</button></div>
-      <p className="muted small">The recess sits behind the wall. Hinged and bi-fold doors need free floor in front of them; sliding doors and an open closet only need room to reach in.</p>
+      <p className="muted small">The closet sits behind the wall and its floor is floor too: drag furniture into it. With no doors a piece may stick out into the room (half a desk); with doors it has to fit inside or the doors can't close. Hinged and bi-fold doors need free floor in front of them.</p>
     </>
   )
 }
