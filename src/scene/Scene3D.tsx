@@ -4,7 +4,10 @@ import { ContactShadows, Edges } from '@react-three/drei'
 import { Select, Selection } from '@react-three/postprocessing'
 import { useEffect, useMemo, useState } from 'react'
 import { footprint } from '../geometry'
+import { useHouses } from '../houses'
+import { useLibrary } from '../library'
 import { useStore } from '../store'
+import { connectedDoors, walkThrough } from '../walkThrough'
 import type { Item } from '../types'
 import { Lights } from './Lights'
 import { OutsideCamera, WalkControls } from './Cameras'
@@ -83,6 +86,14 @@ function SceneContents() {
   const daytime = useStore((s) => s.daytime)
   const quality = useStore((s) => s.quality)
   const selectedId = useStore((s) => s.selectedId)
+  // opened from a house: the doors that lead into its other rooms can be walked through
+  const roomId = useLibrary((s) => s.currentId)
+  const houseRooms = useHouses((s) => s.rooms)
+  const doorways = useMemo(
+    () => (roomId ? connectedDoors(roomId).map((d) => ({ doorId: d.doorId, enter: () => void walkThrough(roomId, d.doorId) })) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roomId, houseRooms, room.doors],
+  )
   const [dragId, setDragId] = useState<string | null>(null)
   const W = cm(room.w), D = cm(room.d)
   const best = quality === 'best'
@@ -92,7 +103,7 @@ function SceneContents() {
       <color attach="background" args={[daytime ? '#e9e3dc' : '#d6cfc8']} />
       <StoreInvalidate />
       <Lights room={room} daytime={daytime} quality={quality} />
-      {view === 'outside' ? <OutsideCamera room={room} locked={dragId !== null} /> : <WalkControls room={room} items={items} />}
+      {view === 'outside' ? <OutsideCamera room={room} locked={dragId !== null} /> : <WalkControls room={room} items={items} doorways={doorways} />}
       <Shell room={room} />
       <Floor room={room} />
       <FloorDrag dragId={dragId} onEnd={() => setDragId(null)} />

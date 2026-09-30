@@ -202,4 +202,32 @@ describe('houses', () => {
       expect(ids.filter((i) => i.startsWith('nightstand-'))).toHaveLength(1)
     })
   })
+
+  it('walks through a connected door into the next room, just inside its door, facing in', async () => {
+    const { walkThrough, connectedDoors } = await import('../walkThrough')
+    const { useStore } = await import('../store')
+    const { makeEmptyRoom } = await import('../data')
+    const { migrateDoc } = await import('../migrate')
+    const doc = (id: string, w: number, d: number, door: RoomDoc['room']['doors'][number]): RoomDoc => migrateDoc({
+      id, name: id, group: '', notes: '', createdAt: '', updatedAt: '', items: [], layouts: [],
+      room: { ...makeEmptyRoom(id, w, d), windows: [], doors: [door] },
+    })!
+    storage.docs.set('room-a', doc('room-a', 300, 400, { id: 'd1', wall: 'right', offset: 50, width: 80, height: 205, sill: 0, hinge: 'left', swing: 'in' }))
+    storage.docs.set('room-b', doc('room-b', 200, 200, { id: 'd9', wall: 'left', offset: 50, width: 80, height: 205, sill: 0, hinge: 'left', swing: 'in' }))
+    storage.houses.set('house-2', { id: 'house-2', name: 'Flat', createdAt: '', updatedAt: '', version: 1, rooms: [{ roomId: 'room-a', x: 0, y: 0, rot: 0 }, { roomId: 'room-b', x: 300 + WALL_GAP, y: 0, rot: 0 }] })
+    await useHouses.getState().refresh()
+    await useHouses.getState().open('house-2')
+    await useLibrary.getState().refresh()
+    await useLibrary.getState().open('room-a')
+    expect(connectedDoors('room-a')).toEqual([{ doorId: 'd1', to: { roomId: 'room-b', doorId: 'd9' } }])
+    expect(await walkThrough('room-a', 'd1')).toBe(true)
+    expect(useLibrary.getState().currentId).toBe('room-b')
+    const st = useStore.getState()
+    expect(st.view).toBe('walk')
+    // 45 cm in from the left wall, in the middle of the door, looking into the room (toward +x)
+    expect(st.walkPose.x).toBe(45)
+    expect(st.walkPose.y).toBe(90)
+    expect(-Math.sin(st.walkPose.yaw)).toBeCloseTo(1)
+    await useLibrary.getState().close()
+  })
 })

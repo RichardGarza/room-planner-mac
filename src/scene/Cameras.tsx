@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { useEffect, useMemo, useRef } from 'react'
-import { isRugKind, rectOf } from '../geometry'
-import { useStore, type OutsideAngle } from '../store'
+import { wallFrame } from '../geometry'
+import { WALK_WALL_GAP, useStore, walkBlocked, type OutsideAngle } from '../store'
 import type { AnyWall, Item, Room, Wall } from '../types'
 import { cm } from './util'
 
@@ -85,7 +85,11 @@ const typing = (t: EventTarget | null) => {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
 }
 
-export function WalkControls({ room, items }: { room: Room; items: Item[] }) {
+/**
+ * Walk mode. `doorways`: this room's doors that lead into another room of the house; walking into one
+ * calls its `enter` (which opens the next room).
+ */
+export function WalkControls({ room, items, doorways = [] }: { room: Room; items: Item[]; doorways?: { doorId: string; enter: () => void }[] }) {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
   const invalidateView = useThree((s) => s.invalidate)
@@ -166,13 +170,21 @@ export function WalkControls({ room, items }: { room: Room; items: Item[] }) {
       const rx = Math.cos(p.yaw), ry = -Math.sin(p.yaw)
       const nx = x + (fx * fwd + rx * side) * speed
       const ny = y + (fy * fwd + ry * side) * speed
-      const blocked = (px: number, py: number) => {
-        if (px < 20 || px > room.w - 20 || py < 20 || py > room.d - 20) return true
-        return items.some((it) => {
-          if (!it.inRoom || isRugKind(it.kind)) return false
-          const r = rectOf(it)
-          return px > r.x0 - 12 && px < r.x1 + 12 && py > r.y0 - 12 && py < r.y1 + 12
-        })
+      // the walls of the room's shape (a drawn one too) and the furniture keep you in
+      const blocked = (px: number, py: number) => walkBlocked(room, items, px, py)
+      // stepping into a door that leads into another room goes through it
+      const through = doorways.find(({ doorId }) => {
+        const door = room.doors.find((d) => d.id === doorId)
+        if (!door) return false
+        const f = wallFrame(room, door.wall)
+        const t = (nx - f.start[0]) * f.along[0] + (ny - f.start[1]) * f.along[1]
+        const depth = (nx - f.start[0]) * f.normal[0] + (ny - f.start[1]) * f.normal[1]
+        return t > door.offset + 15 && t < door.offset + door.width - 15 && depth < WALK_WALL_GAP + 2
+      })
+      if (through) {
+        keys.current.clear()
+        through.enter()
+        return
       }
       if (!blocked(nx, y)) x = nx
       if (!blocked(x, ny)) y = ny
