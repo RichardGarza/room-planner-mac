@@ -1,3 +1,4 @@
+import { houseBounds, roomOnPlan, type HouseDoc } from '../house'
 import { closetInside, closetRecessPolygon, doorSwing, floorBounds, isRugKind, isSide, offsetPolygon, rectOf, roomPolygon, wallAxes, wallPoint, wallStripRect } from '../geometry'
 import type { AnyWall, Door, Item, Opening, Room, Wall } from '../types'
 import type { Unit } from '../units'
@@ -806,4 +807,55 @@ export function buildSheets(product: Product, input: SheetInput, opts: SheetOpti
 export function planScale(room: Room, opts: SheetOptions): number {
   const page = pageSize(opts.paper, opts.orientation, room)
   return placeRoom(room, frame(page).draw).scale
+}
+
+/* ---------- the whole house on one page ---------- */
+
+/** Scales for a whole house: finer ones first, down to 1:200 for a big home on a small page. */
+const HOUSE_SCALES = [...SCALES, 75, 100, 150, 200]
+
+export interface HouseSheetInput {
+  house: HouseDoc
+  /** the house's rooms, by id (a room missing here is left off the page) */
+  rooms: Record<string, { name: string; room: Room; items: Item[] }>
+  unit: Unit
+  date?: string
+}
+
+/**
+ * The house plan: every room at its place on one page, each drawn as on its own floor plan (walls,
+ * doors, windows, closets, labelled furniture) and turned with the room, its name the right way up,
+ * at the finest scale that fits.
+ */
+export function buildHouseSheet(input: HouseSheetInput, opts: SheetOptions): Sheet {
+  const { house, rooms, unit } = input
+  const roomMap = new Map(Object.entries(rooms).map(([id, r]) => [id, r.room] as [string, Room]))
+  const b = houseBounds(house, roomMap) ?? { x0: 0, y0: 0, x1: 100, y1: 100 }
+  const bw = b.x1 - b.x0, bd = b.y1 - b.y0
+  const page = pageSize(opts.paper, opts.orientation, { w: bw, d: bd })
+  const f = frame(page)
+  // room for the wall labels and each room's dimension lines round the edge
+  const PAD = 14
+  const scale = HOUSE_SCALES.find((s) => bw * mmPerCm(s) + PAD * 2 <= f.draw.w && bd * mmPerCm(s) + PAD * 2 <= f.draw.h) ?? HOUSE_SCALES[HOUSE_SCALES.length - 1]
+  const k = mmPerCm(scale)
+  const ox = f.draw.x + (f.draw.w - bw * k) / 2 - b.x0 * k
+  const oy = f.draw.y + PAD - b.y0 * k
+  const body: string[] = []
+  const names: string[] = []
+  for (const p of house.rooms) {
+    const r = rooms[p.roomId]
+    if (!r) continue
+    // each room drawn in its own frame at the page origin, then moved and turned into place
+    const place: RoomPlacement = { scale, k, ox: 0, oy: 0, W: r.room.w * k, D: r.room.d * k, WT: wallThickness(k), pads: roomPads(r.room, k), fits: true }
+    const items = drawItems(r.items, place, unit)
+    body.push(`<g transform="translate(${r2(ox + p.x * k)} ${r2(oy + p.y * k)}) rotate(${p.rot})">${drawRoom(r.room, place, unit)}${items.svg}</g>`)
+    // the name, upright, in the middle of the room
+    const out = roomOnPlan(r.room, p)
+    const cx = out.reduce((s, q) => s + q[0], 0) / out.length, cy = out.reduce((s, q) => s + q[1], 0) / out.length
+    names.push(text(ox + cx * k, oy + cy * k, r.name, { size: F_BODY * 1.4, bold: true, anchor: 'middle', fill: INK }))
+  }
+  const sub = [input.date ?? dateText(), unit === 'in' ? 'inches' : 'centimetres', `Scale ${scaleNote(scale, unit)}`]
+  const svg = svgDoc(page, [titleBlock(f, `${house.name} - house plan`, sub, 1, 1), ...body, ...names, footer(f, unit)].join(''))
+  const fits = bw * k + PAD * 2 <= f.draw.w && bd * k + PAD * 2 <= f.draw.h
+  return { svg, w: page.w, h: page.h, notes: fits ? [] : ['The house does not fit this paper even at 1:200; the plan is clipped.'] }
 }

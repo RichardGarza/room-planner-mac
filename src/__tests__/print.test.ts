@@ -153,3 +153,25 @@ describe('sheets', () => {
     }
   })
 })
+
+describe('the house plan page', () => {
+  it('puts every room of the house on one page, each with its name and furniture', async () => {
+    const { buildHouseSheet } = await import('../print')
+    const { bedroomTwo, forestsRoom } = await import('../seeds')
+    const forest = forestsRoom(), b2 = bedroomTwo()
+    const house = { id: 'house-home', name: 'Home', createdAt: '', updatedAt: '', version: 1, rooms: [
+      { roomId: forest.id, x: 61, y: 0, rot: 0 as const },
+      { roomId: b2.id, x: 500, y: 0, rot: 90 as const },
+    ] }
+    const sheet = buildHouseSheet({ house, rooms: { [forest.id]: forest, [b2.id]: b2 }, unit: 'in', date: 'Sep 29, 2026' }, { paper: 'letter', orientation: 'auto' })
+    expect(sheet.svg).toContain('Home - house plan')
+    expect(sheet.svg).toContain("Forest's Room")
+    expect(sheet.svg).toContain('Bedroom 2')
+    // the second room is drawn turned a quarter
+    expect(sheet.svg).toMatch(/rotate\(90\)/)
+    // a few of its pieces are labelled
+    expect(sheet.svg).toMatch(/Crib|Dresser/)
+    expect(sheet.notes).toEqual([])
+    expect(sheet.w).toBeGreaterThan(sheet.h) // two rooms side by side: landscape
+  })
+})

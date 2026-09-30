@@ -3,7 +3,7 @@ import { polygonBounds } from '../geometry'
 import { runChecks } from '../checks'
 import { connections, floorsOverlap, houseBounds, itemAt, itemOnPlan, roomAt, roomOnPlan, snapPlacement, toHouse, type HouseDoc, type HouseRoom } from '../house'
 import { useHouses } from '../houses'
-import { useLibrary } from '../library'
+import { libraryStorage, useLibrary } from '../library'
 import type { Item, Room } from '../types'
 import { formatRoomSize, useUnits } from '../units'
 import { RoomDrawing } from './PlanThumb'
@@ -51,6 +51,24 @@ export function HouseMap() {
   /** the whole house in 3D (a mass model) instead of the map; walls cut away at waist height or full */
   const [in3d, setIn3d] = useState(false)
   const [cutaway, setCutaway] = useState(true)
+  const [printing, setPrinting] = useState(false)
+  /** The house plan on one page (letter for inches, A4 for centimetres), saved as a PDF. */
+  const savePdf = async () => {
+    if (!house) return
+    setPrinting(true)
+    try {
+      const [{ buildHouseSheet }, { sheetsToPdf }] = await Promise.all([import('../print'), import('../print/pdf')])
+      const sheet = buildHouseSheet({ house, rooms, unit }, { paper: unit === 'in' ? 'letter' : 'a4', orientation: 'auto' })
+      const pdf = await sheetsToPdf([sheet], `${house.name} - house plan`)
+      const s = await libraryStorage()
+      const slug = house.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'house'
+      await s.saveFile?.(`${slug}-house-plan.pdf`, pdf, 'application/pdf')
+    } catch (e) {
+      useHouses.setState({ error: `Could not save the PDF: ${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setPrinting(false)
+    }
+  }
   const [selected, setSelected] = useState<string | null>(null)
   /** the room being dragged, where it would land (snapped) */
   const [dragging, setDragging] = useState<{ place: HouseRoom; snapped: { x: boolean; y: boolean } } | null>(null)
@@ -253,6 +271,7 @@ export function HouseMap() {
           <>
             <button className="chip ghost" onClick={() => setView(null)} title="Show the whole house">Fit</button>
             <button className="chip ghost" onClick={() => void exportHouse(house.id)} title="Save the house and all its rooms (layouts too) as one file, to back up or open on another computer">Export</button>
+            <button className="chip ghost" onClick={() => void savePdf()} disabled={printing} title="The whole house on one page, as a PDF">{printing ? 'Saving…' : 'Save as PDF'}</button>
             <button className={arranging ? 'chip solid' : 'chip'} aria-pressed={arranging} onClick={() => { setArranging(!arranging); setSelected(null) }}>
               {arranging ? 'Done arranging' : 'Arrange rooms'}
             </button>
