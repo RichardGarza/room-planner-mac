@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { presetLayouts } from '../data'
 import { useLibrary } from '../library'
+import { isTauri } from '../storage'
 import { useStore } from '../store'
 import type { Layout } from '../types'
 import { formatRoomSize, useUnits } from '../units'
@@ -15,6 +16,7 @@ function hintDismissed() {
 }
 
 export function TopBar() {
+  const inMacApp = isTauri()
   const room = useStore((s) => s.room)
   const items = useStore((s) => s.items)
   const savedLayouts = useStore((s) => s.savedLayouts)
@@ -191,7 +193,8 @@ export function TopBar() {
       <div className="actions">
         <button className="chip history" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)">↶ Undo</button>
         <button className="chip history" onClick={redo} disabled={!canRedo} title="Redo (⇧⌘Z)">↷ Redo</button>
-        <button className="share" onClick={share}>⇪ Share</button>
+        {/* a share link opens the web version; the Mac app's own address means nothing to anyone else */}
+        {!inMacApp && <button className="share" onClick={share}>⇪ Share</button>}
         <button className="icon" onClick={() => setHelp((h) => !h)} title="Help">?</button>
         {toast && <span className="toast">{toast}</span>}
         {help && (
@@ -206,7 +209,7 @@ export function TopBar() {
               <li><kbd>F</kbd> toggles 2D / 3D focus; drag the divider for any split.</li>
               <li><kbd>\</kbd> hides or shows the side panel.</li>
               <li>Changes save by themselves; <kbd>⌘S</kbd> saves right away.</li>
-              <li>Share copies a link that holds your exact layout.</li>
+              {!inMacApp && <li>Share copies a link that holds your exact layout.</li>}
             </ul>
           </div>
         )}
