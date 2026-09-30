@@ -1,4 +1,4 @@
-import { footprint, roomPolygon, wallAxes, wallPoint } from '../geometry'
+import { closetRecessPolygon, footprint, roomPolygon, wallAxes, wallPoint } from '../geometry'
 import { roomOpenings } from '../library'
 import type { Door, Item, Room } from '../types'
 
@@ -10,25 +10,40 @@ export function PlanThumb({ room, items, size = 180 }: { room: Room; items: Item
   const PAD = 12
   const W = room.w + PAD * 2
   const H = room.d + PAD * 2
-  const { windows, doors } = roomOpenings(room)
-  const inRoom = items.filter((i) => i.inRoom)
-  const rugs = inRoom.filter((i) => i.kind === 'rug' || i.kind === 'rugRect')
-  const solids = inRoom.filter((i) => i.kind !== 'rug' && i.kind !== 'rugRect')
   const height = Math.round((size * 3) / 4)
-  const outline = roomPolygon(room).map((p) => p.join(',')).join(' ')
 
   return (
     <svg className="plan-thumb" viewBox={`0 0 ${W} ${H}`} width={size} height={height} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
       <g transform={`translate(${PAD} ${PAD})`}>
-        <polygon points={outline} fill="#fbf7f2" />
-        {rugs.map((it) => <ThumbItem key={it.id} item={it} />)}
-        {solids.map((it) => <ThumbItem key={it.id} item={it} />)}
-        {doors.map((d, i) => <DoorArc key={`arc${i}`} room={room} door={d} />)}
-        <polygon points={outline} fill="none" stroke="#3f3833" strokeWidth={6} strokeLinejoin="miter" />
-        {windows.map((o, i) => <WindowMark key={`w${i}`} room={room} wall={o.wall} offset={o.offset} width={o.width} />)}
-        {doors.map((d, i) => <DoorGap key={`d${i}`} room={room} wall={d.wall} offset={d.offset} width={d.width} />)}
+        <RoomDrawing room={room} items={items} />
       </g>
     </svg>
+  )
+}
+
+/**
+ * A room drawn in its own coordinates (cm): floor, closets, the furniture that is in the room,
+ * walls, windows and doors (gap + swing arc). The library cards and the house map share it.
+ */
+export function RoomDrawing({ room, items }: { room: Room; items: Item[] }) {
+  const { windows, doors } = roomOpenings(room)
+  const inRoom = items.filter((i) => i.inRoom)
+  const rugs = inRoom.filter((i) => i.kind === 'rug' || i.kind === 'rugRect')
+  const solids = inRoom.filter((i) => i.kind !== 'rug' && i.kind !== 'rugRect')
+  const outline = roomPolygon(room).map((p) => p.join(',')).join(' ')
+  const closets = room.closets ?? []
+  return (
+    <>
+      <polygon points={outline} fill="#fbf7f2" />
+      {closets.map((c) => <polygon key={c.id} points={closetRecessPolygon(room, c).map((p) => p.join(',')).join(' ')} fill="#f6f1ea" stroke="#8f867d" strokeWidth={2} />)}
+      {rugs.map((it) => <ThumbItem key={it.id} item={it} />)}
+      {solids.map((it) => <ThumbItem key={it.id} item={it} />)}
+      {doors.map((d, i) => <DoorArc key={`arc${i}`} room={room} door={d} />)}
+      <polygon points={outline} fill="none" stroke="#3f3833" strokeWidth={6} strokeLinejoin="miter" />
+      {windows.map((o, i) => <WindowMark key={`w${i}`} room={room} wall={o.wall} offset={o.offset} width={o.width} />)}
+      {doors.map((d, i) => <DoorGap key={`d${i}`} room={room} wall={d.wall} offset={d.offset} width={d.width} />)}
+      {closets.map((c) => <DoorGap key={`c${c.id}`} room={room} wall={c.wall} offset={c.offset} width={c.width} />)}
+    </>
   )
 }
 

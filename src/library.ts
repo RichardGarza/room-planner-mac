@@ -102,6 +102,10 @@ export function defaultRoomSize(unit: Unit): { w: number; d: number; h: number }
 const now = () => new Date().toISOString()
 
 let storageOverride: RoomStorage | null = null
+/** Where rooms (and houses) are kept: the configured backend, or the test override. */
+export function libraryStorage(): Promise<RoomStorage> {
+  return storage()
+}
 function storage(): Promise<RoomStorage> {
   return storageOverride ? Promise.resolve(storageOverride) : getStorage()
 }
