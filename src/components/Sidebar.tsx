@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Door, ItemKind, Opening, Radiator, Wall } from '../types'
 import { runChecks } from '../checks'
-import { presetLayouts } from '../data'
+import { examplePresets } from '../data'
 import { catalog, categories } from '../catalog'
 import { footprint, rectOf } from '../geometry'
 import { WallEditor } from './WallEditor'
@@ -27,7 +27,7 @@ export function Sidebar() {
   const unit = useUnits((s) => s.unit)
   // the check texts carry lengths, so they are worked out again when the unit changes
   const checks = useMemo(() => runChecks(room, items, { len: (cm) => formatLength(cm, { unit }) }), [room, items, unit])
-  const layout = [...presetLayouts, ...suggestions, ...savedLayouts].find((l) => l.id === activeLayoutId)
+  const layout = [...examplePresets(savedLayouts), ...suggestions, ...savedLayouts].find((l) => l.id === activeLayoutId)
   const isSuggestion = !!layout && suggestions.includes(layout)
   const isSaved = !!layout && savedLayouts.includes(layout)
   const title = !layout ? 'Your version' : isSuggestion ? `Suggestion ${layout.name}` : isSaved ? `Your layout · ${layout.name}` : layout.name

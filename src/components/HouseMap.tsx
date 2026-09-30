@@ -345,7 +345,7 @@ export function HouseMap() {
           <button className="chip ghost" aria-pressed={!cutaway} onClick={() => setCutaway(!cutaway)} title="Walls cut away at waist height, or at full height">{cutaway ? 'Full-height walls' : 'Cut the walls away'}</button>
         ) : (
           <>
-            <button className="chip ghost" onClick={() => setView(null)} title="Show the whole house">Fit</button>
+            <button className="chip ghost" onClick={() => setView(arranging ? fit() : null)} title="Show the whole house">Fit</button>
             <button className="chip ghost" onClick={() => void exportHouse(house.id)} title="Save the house and all its rooms (layouts too) as one file, to back up or open on another computer">Export</button>
             <button className="chip ghost" onClick={() => void savePdf()} disabled={printing} title="The whole house on one page, as a PDF">{printing ? 'Saving…' : 'Save as PDF'}</button>
             <button className={arranging ? 'chip solid' : 'chip'} aria-pressed={arranging} onClick={() => {

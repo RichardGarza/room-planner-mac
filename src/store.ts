@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { defaultItems, defaultRoom, presetLayouts } from './data'
+import { defaultItems, defaultRoom, examplePresets, presetLayouts } from './data'
 import { CLOSET_HEIGHT, clamp, distanceToWalls, edgeIndex, floorBounds, footprint, frontRecessPad, isRugKind, isSide, normalizeRot, pointInRoom, rectOf, roomWalls, wallFacing, wallFrame, wallLength, wallPoint, wallSpan } from './geometry'
 import { normalizeOutline, placeByPoints, withOutline } from './outline'
 import { MAX_ROOM, MIN_ROOM } from './resize'
@@ -604,7 +604,8 @@ export const useStore = create<State>((set, get) => ({
       if (!p || p.inRoom !== i.inRoom) return false
       return !i.inRoom || (p.x === i.x && p.y === i.y && p.rot === i.rot)
     })
-    const preset = items.length ? presetLayouts.find(matches) : undefined
+    // (the presets as they apply to this room: moved with it if a resize on the house map shifted it)
+    const preset = items.length ? examplePresets(doc.layouts ?? []).find(matches) : undefined
     set({
       room,
       items,

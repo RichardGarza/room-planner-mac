@@ -99,3 +99,34 @@ export const presetLayouts: Layout[] = [
     placements: { ...base, bed: { x: 188, y: 130, rot: 0, inRoom: false } },
   },
 ]
+
+/**
+ * The example room's presets as they apply to this room: the current presets above, moved by the
+ * shift a resize on the house map gave the room (its back or left wall moved, so its contents moved
+ * in its own coordinates). The shift is read off the room's stored copy of each preset: when every
+ * piece of the copy sits the same distance from the preset, that distance is the shift. A copy that
+ * is not a clean shift (an older version of the preset) gives none, so the preset applies as it is.
+ * Names and descriptions always come from the presets themselves.
+ */
+export function examplePresets(saved: Layout[]): Layout[] {
+  return presetLayouts.map((p) => {
+    const copy = saved.find((l) => l.id === p.id)
+    if (!copy) return p
+    let shift: [number, number] | null = null
+    for (const [id, a] of Object.entries(p.placements)) {
+      const b = copy.placements[id]
+      if (!a.inRoom) continue
+      if (!b || !b.inRoom || b.rot !== a.rot) return p
+      const d: [number, number] = [b.x - a.x, b.y - a.y]
+      if (!shift) shift = d
+      else if (Math.abs(d[0] - shift[0]) > 0.5 || Math.abs(d[1] - shift[1]) > 0.5) return p
+    }
+    if (!shift || (Math.abs(shift[0]) < 0.5 && Math.abs(shift[1]) < 0.5)) return p
+    const [dx, dy] = shift
+    return {
+      ...p,
+      placements: Object.fromEntries(Object.entries(p.placements).map(([id, a]) => [id, a.inRoom ? { ...a, x: a.x + dx, y: a.y + dy } : a])),
+      ...(p.items ? { items: p.items.map((i) => (i.inRoom ? { ...i, x: i.x + dx, y: i.y + dy } : i)) } : {}),
+    }
+  })
+}
