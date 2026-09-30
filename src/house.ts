@@ -208,3 +208,23 @@ function edgeDistance(poly: Polygon, px: number, py: number): number {
   }
   return best
 }
+
+/* ---------- furniture on the house plan ---------- */
+
+/**
+ * The piece of furniture under a house point: solid pieces before rugs, the last drawn first (the
+ * one on top). Only pieces that are in their room count.
+ */
+export function itemAt(house: HouseDoc, docs: Record<string, { items: Item[] }>, pt: [number, number]): { roomId: string; item: Item } | null {
+  for (const rugs of [false, true]) {
+    for (const p of [...house.rooms].reverse()) {
+      const doc = docs[p.roomId]
+      if (!doc) continue
+      for (const item of [...doc.items].reverse()) {
+        if (!item.inRoom || (item.kind === 'rug' || item.kind === 'rugRect') !== rugs) continue
+        if (pointInOutline(pt[0], pt[1], itemOnPlan(item, p))) return { roomId: p.roomId, item }
+      }
+    }
+  }
+  return null
+}

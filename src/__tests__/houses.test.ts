@@ -10,7 +10,7 @@ class MemoryStorage {
 ;(globalThis as unknown as { localStorage: MemoryStorage }).localStorage = new MemoryStorage()
 
 import { floorBounds } from '../geometry'
-import { WALL_GAP, roomOnPlan, type HouseDoc, type HouseRoom } from '../house'
+import { WALL_GAP, itemOnPlan, roomOnPlan, type HouseDoc, type HouseRoom } from '../house'
 import { HOME_ID, useHouses } from '../houses'
 import { useLibrary } from '../library'
 import { bedroomTwo, forestsRoom } from '../seeds'
@@ -128,5 +128,77 @@ describe('houses', () => {
     await useHouses.getState().removeRoom('room-study')
     expect(saved().rooms.map((p) => p.roomId)).toEqual(['room-forest', 'room-bedroom-2'])
     expect(storage.docs.has('room-study')).toBe(true)
+  })
+
+  describe('moving furniture on the map', () => {
+    const planOf = (roomId: string, itemId: string) => {
+      const st = useHouses.getState()
+      const house = st.houses.find((h) => h.id === HOME_ID)!
+      const p = house.rooms.find((r) => r.roomId === roomId)!
+      const item = st.rooms[roomId].items.find((i) => i.id === itemId)!
+      return polygonBounds(itemOnPlan(item, p))
+    }
+    const middleOf = (b: { x0: number; y0: number; x1: number; y1: number }) => [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]
+
+    beforeEach(async () => {
+      await useHouses.getState().refresh()
+      await useHouses.getState().open(HOME_ID)
+    })
+
+    it('moves a piece into another room, keeping how it looks on the plan, and saves the new room first', async () => {
+      const order: string[] = []
+      const save = storage.save.bind(storage)
+      storage.save = async (d) => { order.push(d.id); await save(d) }
+      const before = planOf('room-forest', 'forest-dresser')
+      // into the middle of Bedroom 2
+      const house = useHouses.getState().houses[0]
+      const b2 = house.rooms[1]
+      const b2box = polygonBounds(roomOnPlan(storage.docs.get('room-bedroom-2')!.room, b2))
+      const [mx, my] = middleOf(b2box)
+      const landed = await useHouses.getState().moveItem('room-forest', 'forest-dresser', mx, my)
+      expect(landed).toBe('room-bedroom-2')
+      expect(order).toEqual(['room-bedroom-2', 'room-forest'])
+      expect(storage.docs.get('room-forest')!.items.some((i) => i.id === 'forest-dresser')).toBe(false)
+      const after = planOf('room-bedroom-2', 'forest-dresser')
+      // same size and turn on the plan, now centred where it was dropped
+      expect(after.x1 - after.x0).toBeCloseTo(before.x1 - before.x0, 0)
+      expect(after.y1 - after.y0).toBeCloseTo(before.y1 - before.y0, 0)
+      expect(middleOf(after)[0]).toBeCloseTo(mx, -0.5)
+      expect(middleOf(after)[1]).toBeCloseTo(my, -0.5)
+    })
+
+    it('moves a piece within its own room', async () => {
+      const house = useHouses.getState().houses[0]
+      const box = polygonBounds(roomOnPlan(storage.docs.get('room-forest')!.room, house.rooms[0]))
+      const x = box.x0 + 150, y = box.y0 + 150
+      expect(await useHouses.getState().moveItem('room-forest', 'forest-side', x, y)).toBe('room-forest')
+      const side = storage.docs.get('room-forest')!.items.find((i) => i.id === 'forest-side')!
+      expect(side.x).toBe(Math.round(x - house.rooms[0].x))
+      expect(side.y).toBe(Math.round(y - house.rooms[0].y))
+    })
+
+    it('leaves a piece where it is when dropped outside every room, or when it is locked', async () => {
+      const before = JSON.stringify(storage.docs.get('room-forest'))
+      expect(await useHouses.getState().moveItem('room-forest', 'forest-dresser', -5000, -5000)).toBeNull()
+      const forest = storage.docs.get('room-forest')!
+      storage.docs.set('room-forest', { ...forest, items: forest.items.map((i) => (i.id === 'forest-dresser' ? { ...i, locked: true } : i)) })
+      await useHouses.getState().open(HOME_ID)
+      const house = useHouses.getState().houses[0]
+      const [mx, my] = middleOf(polygonBounds(roomOnPlan(storage.docs.get('room-bedroom-2')!.room, house.rooms[1])))
+      expect(await useHouses.getState().moveItem('room-forest', 'forest-dresser', mx, my)).toBeNull()
+      expect(JSON.parse(before).items.length).toBe(storage.docs.get('room-forest')!.items.length)
+    })
+
+    it('gives a piece a fresh id when the other room already has one like it', async () => {
+      const b2 = storage.docs.get('room-bedroom-2')!
+      storage.docs.set('room-bedroom-2', { ...b2, items: [...b2.items, { ...b2.items[0], id: 'forest-side', inRoom: false }] })
+      await useHouses.getState().open(HOME_ID)
+      const house = useHouses.getState().houses[0]
+      const [mx, my] = middleOf(polygonBounds(roomOnPlan(storage.docs.get('room-bedroom-2')!.room, house.rooms[1])))
+      await useHouses.getState().moveItem('room-forest', 'forest-side', mx, my)
+      const ids = storage.docs.get('room-bedroom-2')!.items.map((i) => i.id)
+      expect(new Set(ids).size).toBe(ids.length)
+      expect(ids.filter((i) => i.startsWith('nightstand-'))).toHaveLength(1)
+    })
   })
 })

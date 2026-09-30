@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import { floorBounds, polygonBounds } from './geometry'
-import { HOUSE_VERSION, WALL_GAP, houseBounds, roomOnPlan, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
-import { libraryStorage, seedKey } from './library'
+import { floorBounds, normalizeRot, polygonBounds } from './geometry'
+import { HOUSE_VERSION, WALL_GAP, houseBounds, roomAt, roomOnPlan, toRoom, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
+import { libraryStorage, seedKey, useLibrary } from './library'
 import { migrateDoc } from './migrate'
-import type { Room, RoomDoc } from './types'
+import type { Item, Room, RoomDoc } from './types'
 
 /*
  * The houses in the library and the one on screen (the house map). A house only places rooms; the
@@ -37,6 +37,13 @@ interface HousesState {
   addRoom: (roomId: string) => Promise<void>
   /** take a room out of the house (the room itself stays in the library) */
   removeRoom: (roomId: string) => Promise<void>
+  /**
+   * Move a piece of furniture on the house plan: its middle to house point (x, y), turned `turn`
+   * degrees more (clockwise). Dropped in its own room it just moves; dropped in another room it moves
+   * into that room's file (written there before it leaves the first, so a failed save can only ever
+   * leave two, never none). Outside every room nothing changes. Returns the room it ended up in.
+   */
+  moveItem: (fromRoomId: string, itemId: string, x: number, y: number, turn?: number) => Promise<string | null>
 }
 
 function flagGet(key: string) {
@@ -155,6 +162,47 @@ export const useHouses = create<HousesState>((set, get) => ({
     const x = b ? b.x1 + WALL_GAP - f.x0 : -f.x0
     const y = b ? b.y0 - f.y0 : -f.y0
     await update((h) => ({ ...h, rooms: [...h.rooms, { roomId, x: Math.round(x), y: Math.round(y), rot: 0 }] }))
+  },
+
+  moveItem: async (fromRoomId, itemId, x, y, turn = 0) => {
+    const house = currentHouse()
+    const docs = get().rooms
+    const from = docs[fromRoomId]
+    const fromPlace = house?.rooms.find((p) => p.roomId === fromRoomId)
+    const item = from?.items.find((i) => i.id === itemId)
+    if (!house || !from || !fromPlace || !item || item.locked) return null
+    const roomMap = new Map(Object.entries(docs).map(([id, d]) => [id, d.room] as [string, Room]))
+    const target = roomAt(house, roomMap, [x, y])
+    if (!target) return null
+    const to = docs[target.roomId]
+    // the same spot and angle on the plan, in the target room's own coordinates
+    const [lx, ly] = toRoom(target, [x, y])
+    const rot = normalizeRot(item.rot + fromPlace.rot - target.rot + turn)
+    const s = await libraryStorage()
+    const ts = new Date().toISOString()
+    try {
+      if (target.roomId === fromRoomId) {
+        const next: RoomDoc = { ...from, updatedAt: ts, items: from.items.map((i) => (i.id === itemId ? { ...i, x: Math.round(lx), y: Math.round(ly), rot } : i)) }
+        await s.save(next)
+        set({ rooms: { ...get().rooms, [fromRoomId]: next } })
+      } else {
+        // a fresh id when the target room already has one like it
+        const taken = new Set(to.items.map((i) => i.id))
+        let id = item.id
+        while (taken.has(id)) id = `${item.kind}-${Math.random().toString(36).slice(2, 8)}`
+        const moved: Item = { ...item, id, x: Math.round(lx), y: Math.round(ly), rot, inRoom: true }
+        const nextTo: RoomDoc = { ...to, updatedAt: ts, items: [...to.items, moved] }
+        const nextFrom: RoomDoc = { ...from, updatedAt: ts, items: from.items.filter((i) => i.id !== itemId) }
+        await s.save(nextTo)
+        await s.save(nextFrom)
+        set({ rooms: { ...get().rooms, [target.roomId]: nextTo, [fromRoomId]: nextFrom } })
+      }
+    } catch (e) {
+      set({ status: 'error', error: `Could not move the ${item.name.toLowerCase()}: ${errorText(e)}` })
+      return null
+    }
+    void useLibrary.getState().refresh()
+    return target.roomId
   },
 
   removeRoom: async (roomId) => {
