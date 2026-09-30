@@ -51,3 +51,6 @@
 /* connected doors */
 .house-passage { fill: #fbf7f2; stroke: var(--pink); stroke-width: 2; stroke-dasharray: 5 4; }
 .house-thumb { flex: none; background: #f3eee8; border-radius: 10px; }
+
+/* floors */
+.house-floor select { font-weight: 800; }

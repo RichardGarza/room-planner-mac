@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { polygonBounds } from '../geometry'
 import { runChecks } from '../checks'
-import { connections, floorsOverlap, houseBounds, itemAt, itemOnPlan, roomAt, roomOnPlan, snapPlacement, toHouse, type HouseDoc, type HouseRoom } from '../house'
+import { connections, floorsOverlap, houseBounds, itemAt, itemOnPlan, levelName, levels, onLevel, roomAt, roomOnPlan, snapPlacement, toHouse, type HouseDoc, type HouseRoom } from '../house'
 import { useHouses } from '../houses'
 import { libraryStorage, useLibrary } from '../library'
 import type { Item, Room } from '../types'
@@ -41,7 +41,7 @@ export function HouseMap() {
   const rooms = useHouses((s) => s.rooms)
   const status = useHouses((s) => s.status)
   const error = useHouses((s) => s.error)
-  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem, addHallway, exportHouse } = useHouses.getState()
+  const { open: openHouse, close: closeHouse, moveRoom, turnRoom, addRoom, removeRoom, moveItem, addHallway, exportHouse, setLevel: setRoomLevel } = useHouses.getState()
   const openRoom = useLibrary((s) => s.open)
   const library = useLibrary((s) => s.rooms)
   const unit = useUnits((s) => s.unit)
@@ -52,14 +52,19 @@ export function HouseMap() {
   const [in3d, setIn3d] = useState(false)
   const [cutaway, setCutaway] = useState(true)
   const [printing, setPrinting] = useState(false)
+  /** the floor on screen; a floor with no rooms yet can be shown to add rooms to it */
+  const [level, setLevel] = useState(0)
+  const floors = house ? [...new Set([...levels(house), level])].sort((a, b) => a - b) : [0]
   /** The house plan on one page (letter for inches, A4 for centimetres), saved as a PDF. */
   const savePdf = async () => {
     if (!house) return
     setPrinting(true)
     try {
       const [{ buildHouseSheet }, { sheetsToPdf }] = await Promise.all([import('../print'), import('../print/pdf')])
-      const sheet = buildHouseSheet({ house, rooms, unit }, { paper: unit === 'in' ? 'letter' : 'a4', orientation: 'auto' })
-      const pdf = await sheetsToPdf([sheet], `${house.name} - house plan`)
+      // a page per floor
+      const all = levels(house)
+      const sheets = all.map((l) => buildHouseSheet({ house: onLevel(house, l), rooms, unit, floor: all.length > 1 ? levelName(l) : undefined }, { paper: unit === 'in' ? 'letter' : 'a4', orientation: 'auto' }))
+      const pdf = await sheetsToPdf(sheets, `${house.name} - house plan`)
       const s = await libraryStorage()
       const slug = house.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'house'
       await s.saveFile?.(`${slug}-house-plan.pdf`, pdf, 'application/pdf')
@@ -81,21 +86,22 @@ export function HouseMap() {
   useEffect(() => { if (houseId) void openHouse(houseId) }, [houseId, openHouse])
 
   const roomMap = useMemo(() => new Map(Object.entries(rooms).map(([id, d]) => [id, d.room] as [string, Room])), [rooms])
-  // the house as drawn: with the room being dragged where it would land
+  // the floor on screen, as drawn: with the room being dragged where it would land
+  const floor: HouseDoc | undefined = useMemo(() => (house ? onLevel(house, level) : undefined), [house, level])
   const shown: HouseDoc | undefined = useMemo(() => {
-    if (!house || !dragging) return house
-    return { ...house, rooms: house.rooms.map((p) => (p.roomId === dragging.place.roomId ? dragging.place : p)) }
-  }, [house, dragging])
+    if (!floor || !dragging) return floor
+    return { ...floor, rooms: floor.rooms.map((p) => (p.roomId === dragging.place.roomId ? dragging.place : p)) }
+  }, [floor, dragging])
 
   const fit = (): View => {
-    const b = house ? houseBounds(house, roomMap) : null
+    const b = floor ? houseBounds(floor, roomMap) : null
     if (!b) return { x: 0, y: 0, w: 1000, h: 700 }
     return { x: b.x0 - MARGIN, y: b.y0 - MARGIN, w: b.x1 - b.x0 + MARGIN * 2, h: b.y1 - b.y0 + MARGIN * 2 }
   }
   const [view, setView] = useState<View | null>(null)
   const v = view ?? fit()
   // another house, or its rooms loaded: fit them (not while arranging, or the map would jump with every move)
-  const fitKey = `${houseId}|${Object.keys(rooms).sort().join()}`
+  const fitKey = `${houseId}|${level}|${Object.keys(rooms).sort().join()}`
   useEffect(() => { setView(null) }, [fitKey])
 
   const scale = () => { const r = svg.current!.getBoundingClientRect(); return Math.max(v.w / r.width, v.h / r.height) }
@@ -111,12 +117,12 @@ export function HouseMap() {
   // pointer while it is down, so the rooms themselves never see the click.
   const press = useRef<Press | null>(null)
   const onDown = (e: React.PointerEvent) => {
-    if (!house) return
+    if (!floor) return
     const at = toPlan(e.clientX, e.clientY)
-    const hit = arranging ? roomAt(house, roomMap, at) : null
+    const hit = arranging ? roomAt(floor, roomMap, at) : null
     // a piece of furniture (not while arranging): picked up, unless it is locked
-    const piece = arranging ? null : itemAt(house, rooms, at)
-    const place = piece && house.rooms.find((r) => r.roomId === piece.roomId)
+    const piece = arranging ? null : itemAt(floor, rooms, at)
+    const place = piece && floor.rooms.find((r) => r.roomId === piece.roomId)
     if (piece && place && !piece.item.locked) {
       const [cx, cy] = toHouse(place, [piece.item.x, piece.item.y])
       press.current = { kind: 'item', px: e.clientX, py: e.clientY, roomId: piece.roomId, item: piece.item, grab: [at[0] - cx, at[1] - cy], moved: false }
@@ -129,7 +135,7 @@ export function HouseMap() {
   }
   const onMove = (e: React.PointerEvent) => {
     const p = press.current
-    if (!p || !house) return
+    if (!p || !house || !floor) return
     if (Math.abs(e.clientX - p.px) + Math.abs(e.clientY - p.py) > 4) p.moved = true
     if (!p.moved) return
     if (p.kind === 'pan') {
@@ -141,13 +147,13 @@ export function HouseMap() {
     } else {
       const at = toPlan(e.clientX, e.clientY)
       const moved: HouseRoom = { ...p.start, x: p.start.x + at[0] - p.grab[0], y: p.start.y + at[1] - p.grab[1] }
-      setDragging(e.altKey ? { place: moved, snapped: { x: false, y: false } } : snapPlacement(house, roomMap, moved))
+      setDragging(e.altKey ? { place: moved, snapped: { x: false, y: false } } : snapPlacement(floor, roomMap, moved))
     }
   }
   const onUp = (e: React.PointerEvent) => {
     const p = press.current
     press.current = null
-    if (!p || !house) return
+    if (!p || !house || !floor) return
     if (p.kind === 'room' && p.moved && dragging) {
       void moveRoom(dragging.place.roomId, dragging.place.x, dragging.place.y)
       setSelected(dragging.place.roomId)
@@ -166,11 +172,11 @@ export function HouseMap() {
     setCarrying(null)
     if (p.moved) return
     const at = toPlan(e.clientX, e.clientY)
-    if (arranging) return setSelected(roomAt(house, roomMap, at)?.roomId ?? null)
+    if (arranging) return setSelected(roomAt(floor, roomMap, at)?.roomId ?? null)
     // a click on a piece picks it; on a room's floor opens the room; on nothing lets go
-    const piece = itemAt(house, rooms, at)
+    const piece = itemAt(floor, rooms, at)
     if (piece) return setPicked({ roomId: piece.roomId, itemId: piece.item.id })
-    const hit = roomAt(house, roomMap, at)
+    const hit = roomAt(floor, roomMap, at)
     if (hit) void openRoom(hit.roomId)
     else setPicked(null)
   }
@@ -261,6 +267,14 @@ export function HouseMap() {
               : `${house.rooms.length} room${house.rooms.length === 1 ? '' : 's'}${links.length ? ` · ${links.length} connected door${links.length === 1 ? '' : 's'}` : ''} · click a room to open it · scroll to zoom, drag to move around`}
           </span>
         </div>
+        {(floors.length > 1 || arranging) && (
+          <label className="house-floor">
+            <select value={level} onChange={(e) => { setLevel(e.target.value === 'up' ? Math.max(...floors) + 1 : Number(e.target.value)); setSelected(null); setPicked(null) }} aria-label="Floor">
+              {floors.map((l) => <option key={l} value={l}>{levelName(l)}</option>)}
+              {arranging && <option value="up">+ New floor above</option>}
+            </select>
+          </label>
+        )}
         <div className="seg" role="group" aria-label="Map or 3D">
           <button className={in3d ? '' : 'on'} aria-pressed={!in3d} onClick={() => setIn3d(false)}>Map</button>
           <button className={in3d ? 'on' : ''} aria-pressed={in3d} onClick={() => { setIn3d(true); setArranging(false); setPicked(null) }}>3D</button>
@@ -285,14 +299,26 @@ export function HouseMap() {
               <strong>{selectedName}</strong>
               <button className="chip" onClick={() => void turnRoom(selected!)} title="A quarter turn clockwise (R)">↻ Turn 90°</button>
               <button className="chip ghost" onClick={() => { void removeRoom(selected!); setSelected(null) }} title="Take it out of the house; the room itself stays in your rooms">Take out of the house</button>
+              <label className="house-add">
+                Floor
+                <select value={level} onChange={(e) => {
+                  const to = e.target.value === 'up' ? Math.max(...floors) + 1 : Number(e.target.value)
+                  const id = selected!
+                  // follow the room to its new floor, still selected
+                  void setRoomLevel(id, to).then(() => { setLevel(to); setSelected(id) })
+                }}>
+                  {floors.map((l) => <option key={l} value={l}>{levelName(l)}</option>)}
+                  <option value="up">A new floor above</option>
+                </select>
+              </label>
             </>
           ) : <span className="muted small">Select a room to turn it or take it out.</span>}
           <span className="house-tools-gap" />
-          <button className="chip ghost" onClick={() => void addHallway().then((id) => id && setSelected(id))} title="A new empty room for a hallway or open area, placed next to the house">+ Add a hallway</button>
+          <button className="chip ghost" onClick={() => void addHallway(level).then((id) => id && setSelected(id))} title="A new empty room for a hallway or open area, placed next to the house">+ Add a hallway</button>
           {addable.length > 0 && (
             <label className="house-add">
               Add a room
-              <select value="" onChange={(e) => { if (e.target.value) void addRoom(e.target.value) }}>
+              <select value="" onChange={(e) => { if (e.target.value) void addRoom(e.target.value, level) }}>
                 <option value="">Choose…</option>
                 {addable.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
@@ -320,7 +346,7 @@ export function HouseMap() {
       {in3d && (
         <div className="house-3d">
           <Suspense fallback={<p className="muted house-note">Loading 3D…</p>}>
-            <HouseScene3D house={house} rooms={rooms} cutaway={cutaway} onOpen={(id) => void openRoom(id)} />
+            <HouseScene3D house={house} rooms={rooms} cutaway={cutaway} upTo={level} onOpen={(id) => void openRoom(id)} />
           </Suspense>
         </div>
       )}
@@ -378,7 +404,7 @@ export function HouseMap() {
           if (!place) return null
           const [cx, cy] = toHouse(place, [carrying.item.x, carrying.item.y])
           const pts = itemOnPlan(carrying.item, place).map(([x, y]) => [x - cx + carrying.x, y - cy + carrying.y])
-          const over = roomAt(house, roomMap, [carrying.x, carrying.y])
+          const over = roomAt(floor!, roomMap, [carrying.x, carrying.y])
           return <polygon className={over ? 'house-carried' : 'house-carried nowhere'} points={pts.map((q) => q.join(',')).join(' ')} fill={carrying.item.color} />
         })()}
         {/* names on top, the right way up whatever the room's turn */}

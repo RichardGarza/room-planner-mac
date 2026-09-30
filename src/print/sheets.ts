@@ -815,7 +815,10 @@ export function planScale(room: Room, opts: SheetOptions): number {
 const HOUSE_SCALES = [...SCALES, 75, 100, 150, 200]
 
 export interface HouseSheetInput {
+  /** the rooms to draw (one floor of a house: see onLevel) */
   house: HouseDoc
+  /** the floor's name, for a house with several ("First floor") */
+  floor?: string
   /** the house's rooms, by id (a room missing here is left off the page) */
   rooms: Record<string, { name: string; room: Room; items: Item[] }>
   unit: Unit
@@ -855,7 +858,8 @@ export function buildHouseSheet(input: HouseSheetInput, opts: SheetOptions): She
     names.push(text(ox + cx * k, oy + cy * k, r.name, { size: F_BODY * 1.4, bold: true, anchor: 'middle', fill: INK }))
   }
   const sub = [input.date ?? dateText(), unit === 'in' ? 'inches' : 'centimetres', `Scale ${scaleNote(scale, unit)}`]
-  const svg = svgDoc(page, [titleBlock(f, `${house.name} - house plan`, sub, 1, 1), ...body, ...names, footer(f, unit)].join(''))
+  const title = input.floor ? `${house.name} - ${input.floor.toLowerCase()} plan` : `${house.name} - house plan`
+  const svg = svgDoc(page, [titleBlock(f, title, sub, 1, 1), ...body, ...names, footer(f, unit)].join(''))
   const fits = bw * k + PAD * 2 <= f.draw.w && bd * k + PAD * 2 <= f.draw.h
   return { svg, w: page.w, h: page.h, notes: fits ? [] : ['The house does not fit this paper even at 1:200; the plan is clipped.'] }
 }

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { floorBounds, normalizeRot, polygonBounds } from './geometry'
-import { HOUSE_VERSION, WALL_GAP, houseBounds, migrateHouse, roomAt, roomOnPlan, toRoom, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
+import { HOUSE_VERSION, WALL_GAP, houseBounds, levelOf, migrateHouse, onLevel, roomAt, roomOnPlan, toRoom, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
 import { makeEmptyRoom } from './data'
 import { libraryStorage, newId, seedKey, useLibrary } from './library'
 import { migrateDoc } from './migrate'
@@ -34,8 +34,10 @@ interface HousesState {
   moveRoom: (roomId: string, x: number, y: number) => Promise<void>
   /** a quarter turn clockwise, about the room's middle so it turns in place */
   turnRoom: (roomId: string) => Promise<void>
-  /** a room from the library, placed to the right of the house */
-  addRoom: (roomId: string) => Promise<void>
+  /** a room from the library, placed to the right of the rooms on that floor (the ground floor by default) */
+  addRoom: (roomId: string, level?: number) => Promise<void>
+  /** move a room to another floor, where it stands on the plan */
+  setLevel: (roomId: string, level: number) => Promise<void>
   /** take a room out of the house (the room itself stays in the library) */
   removeRoom: (roomId: string) => Promise<void>
   /**
@@ -50,7 +52,7 @@ interface HousesState {
    * A new empty room for a hallway or an open area (120 × 300 cm, one door, no window), saved with
    * the other rooms and added to the house; returns its id.
    */
-  addHallway: () => Promise<string | null>
+  addHallway: (level?: number) => Promise<string | null>
   /** Save a house and all its rooms (layouts included) as one file, through the save dialog / a download. */
   exportHouse: (id: string) => Promise<void>
   /**
@@ -176,7 +178,7 @@ export const useHouses = create<HousesState>((set, get) => ({
     }),
   })),
 
-  addRoom: async (roomId) => {
+  addRoom: async (roomId, level = 0) => {
     const house = currentHouse()
     if (!house || house.rooms.some((p) => p.roomId === roomId)) return
     const s = await libraryStorage()
@@ -184,13 +186,23 @@ export const useHouses = create<HousesState>((set, get) => ({
     const doc = raw ? migrateDoc(raw) : null
     if (!doc) return set({ error: 'That room could not be found.' })
     set({ rooms: { ...get().rooms, [roomId]: doc } })
-    // to the right of everything already there, tops lined up
-    const b = houseBounds(house, new Map(Object.entries(get().rooms).map(([id, d]) => [id, d.room] as [string, Room])))
+    // to the right of everything already on that floor, tops lined up
+    const b = houseBounds(onLevel(house, level), new Map(Object.entries(get().rooms).map(([id, d]) => [id, d.room] as [string, Room])))
     const f = floorBounds(doc.room)
     const x = b ? b.x1 + WALL_GAP - f.x0 : -f.x0
     const y = b ? b.y0 - f.y0 : -f.y0
-    await update((h) => ({ ...h, rooms: [...h.rooms, { roomId, x: Math.round(x), y: Math.round(y), rot: 0 }] }))
+    const place: HouseRoom = { roomId, x: Math.round(x), y: Math.round(y), rot: 0 }
+    await update((h) => ({ ...h, rooms: [...h.rooms, level ? { ...place, level } : place] }))
   },
+
+  setLevel: (roomId, level) => update((h) => ({
+    ...h,
+    rooms: h.rooms.map((p) => {
+      if (p.roomId !== roomId) return p
+      const { level: _old, ...rest } = p
+      return level ? { ...rest, level } : rest
+    }),
+  })),
 
   moveItem: async (fromRoomId, itemId, x, y, turn = 0) => {
     const house = currentHouse()
@@ -200,7 +212,8 @@ export const useHouses = create<HousesState>((set, get) => ({
     const item = from?.items.find((i) => i.id === itemId)
     if (!house || !from || !fromPlace || !item || item.locked) return null
     const roomMap = new Map(Object.entries(docs).map(([id, d]) => [id, d.room] as [string, Room]))
-    const target = roomAt(house, roomMap, [x, y])
+    // a piece stays on its floor
+    const target = roomAt(onLevel(house, levelOf(fromPlace)), roomMap, [x, y])
     if (!target) return null
     const to = docs[target.roomId]
     // the same spot and angle on the plan, in the target room's own coordinates
@@ -235,7 +248,7 @@ export const useHouses = create<HousesState>((set, get) => ({
     return { roomId: target.roomId, itemId: landedId }
   },
 
-  addHallway: async () => {
+  addHallway: async (level = 0) => {
     const house = currentHouse()
     if (!house) return null
     const taken = new Set(useLibrary.getState().rooms.map((r) => r.name))
@@ -257,7 +270,7 @@ export const useHouses = create<HousesState>((set, get) => ({
       return null
     }
     await useLibrary.getState().refresh()
-    await get().addRoom(doc.id)
+    await get().addRoom(doc.id, level)
     return doc.id
   },
 

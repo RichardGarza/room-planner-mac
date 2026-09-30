@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultRoom } from '../data'
-import { SNAP, WALL_GAP, connections, floorsOverlap, houseBounds, houseRot, itemOnPlan, migrateHouse, roomAt, roomOnPlan, snapPlacement, toHouse, toRoom, type HouseDoc, type HouseRoom } from '../house'
+import { SNAP, WALL_GAP, connections, floorsOverlap, levelName, levels, onLevel, houseBounds, houseRot, itemOnPlan, migrateHouse, roomAt, roomOnPlan, snapPlacement, toHouse, toRoom, type HouseDoc, type HouseRoom } from '../house'
 import type { Door, Item, Room } from '../types'
 
 const room = (w: number, d: number): Room => ({ ...defaultRoom, w, d, windows: [], doors: [], radiators: [], closets: [] })
@@ -141,5 +141,25 @@ describe('connected doors', () => {
     expect(r.place.y).toBe(-10)
     expect(r.place.x).toBe(300 + WALL_GAP)
     expect(connections(house([h.rooms[0], r.place]), docs(A, B))).toHaveLength(1)
+  })
+})
+
+describe('floors', () => {
+  it('reads floors from saved houses and names them', () => {
+    const h = migrateHouse({ id: 'h', rooms: [{ roomId: 'a', x: 0, y: 0, rot: 0 }, { roomId: 'b', x: 0, y: 0, rot: 0, level: 1 }, { roomId: 'c', x: 0, y: 0, rot: 0, level: -1.2 }] })!
+    expect(h.rooms.map((r) => r.level ?? 0)).toEqual([0, 1, -1])
+    expect(levels(h)).toEqual([-1, 0, 1])
+    expect(onLevel(h, 1).rooms.map((r) => r.roomId)).toEqual(['b'])
+    expect([levelName(0), levelName(1), levelName(2), levelName(-1)]).toEqual(['Ground floor', 'First floor', 'Second floor', 'Basement'])
+  })
+
+  it('connects and snaps only rooms on the same floor', () => {
+    const d = (id: string, wall: Door['wall']): Door => ({ id, wall, offset: 50, width: 80, height: 205, sill: 0, hinge: 'left', swing: 'in' })
+    const A: Room = { ...room(300, 400), doors: [d('d1', 'right')] }
+    const B: Room = { ...room(200, 200), doors: [d('d9', 'left')] }
+    const upstairs = house([{ roomId: 'a', x: 0, y: 0, rot: 0 }, { roomId: 'b', x: 300 + WALL_GAP, y: 0, rot: 0, level: 1 }])
+    expect(connections(upstairs, { a: { room: A }, b: { room: B } })).toHaveLength(0)
+    const moving = { roomId: 'b', x: 300 + WALL_GAP + 20, y: 5, rot: 0 as const, level: 1 }
+    expect(snapPlacement(upstairs, new Map([['a', A], ['b', B]]), moving).snapped).toEqual({ x: false, y: false })
   })
 })

@@ -3,7 +3,7 @@ import { Canvas, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { CLOSET_HEIGHT, closetRecessPolygon, isRugKind, roomPolygon, roomWalls, wallFacing, wallFrame, wallLength, type Polygon } from '../geometry'
-import { houseBounds, type HouseDoc, type HouseRoom } from '../house'
+import { houseBounds, levelOf, type HouseDoc, type HouseRoom } from '../house'
 import type { AnyWall, Item, Room, RoomDoc } from '../types'
 import { cm, shadeColor, useDisposable, WALL_T } from './util'
 
@@ -24,16 +24,29 @@ interface Props {
   house: HouseDoc
   rooms: Record<string, RoomDoc>
   cutaway: boolean
+  /** show the floors up to this one (a floor's rooms stand one storey above the one below) */
+  upTo?: number
   onOpen: (roomId: string) => void
 }
 
-export function HouseScene3D({ house, rooms, cutaway, onOpen }: Props) {
+/** How high one storey is (m): the tallest ceiling in the house and a floor slab. */
+function storeyHeight(rooms: Record<string, RoomDoc>) {
+  return Math.max(2.4, ...Object.values(rooms).map((d) => cm(d.room.h))) + 0.3
+}
+
+export function HouseScene3D({ house: whole, rooms, cutaway, upTo = Infinity, onOpen }: Props) {
+  // the floors up to the one on screen, each a storey above the last
+  const house = useMemo(() => ({ ...whole, rooms: whole.rooms.filter((p) => levelOf(p) <= upTo) }), [whole, upTo])
+  const storey = storeyHeight(rooms)
   const [hover, setHover] = useState<string | null>(null)
   const roomMap = useMemo(() => new Map(Object.entries(rooms).map(([id, d]) => [id, d.room] as [string, Room])), [rooms])
   const b = houseBounds(house, roomMap) ?? { x0: 0, y0: 0, x1: 600, y1: 400 }
   const cx = cm((b.x0 + b.x1) / 2), cz = cm((b.y0 + b.y1) / 2)
   const size = Math.max(cm(b.x1 - b.x0), cm(b.y1 - b.y0), 4)
-  const camera = useMemo(() => [cx - size * 0.55, size * 0.95, cz + size * 1.05] as [number, number, number], [cx, cz, size])
+  // aim at the middle of the floors shown: halfway up to the top one
+  const top = house.rooms.length ? Math.max(0, ...house.rooms.map(levelOf)) * storey : 0
+  const cy = top / 2
+  const camera = useMemo(() => [cx - size * 0.55, cy + size * 0.95, cz + size * 1.05] as [number, number, number], [cx, cy, cz, size])
 
   return (
     <Canvas shadows dpr={[1, 2]} camera={{ position: camera, fov: 40, near: 0.1, far: 500 }} style={{ background: '#efe9e1' }} onPointerMissed={() => setHover(null)}>
@@ -59,19 +72,21 @@ export function HouseScene3D({ house, rooms, cutaway, onOpen }: Props) {
       {house.rooms.map((p) => {
         const doc = rooms[p.roomId]
         if (!doc) return null
-        return <HouseRoom3D key={p.roomId} place={p} doc={doc} cutaway={cutaway} lit={hover === p.roomId}
+        return <HouseRoom3D key={p.roomId} place={p} doc={doc} cutaway={cutaway && levelOf(p) === Math.max(...house.rooms.map(levelOf))} lift={levelOf(p) * storey} lit={hover === p.roomId}
           onHover={(on) => setHover((h) => (on ? p.roomId : h === p.roomId ? null : h))}
           onOpen={() => onOpen(p.roomId)} />
       })}
-      <OrbitControls makeDefault target={[cx, 0, cz]} maxPolarAngle={Math.PI / 2 - 0.08} minDistance={2} maxDistance={size * 4} enableDamping dampingFactor={0.12} />
+      <OrbitControls makeDefault target={[cx, cy, cz]} maxPolarAngle={Math.PI / 2 - 0.08} minDistance={2} maxDistance={size * 4} enableDamping dampingFactor={0.12} />
     </Canvas>
   )
 }
 
-function HouseRoom3D({ place, doc, cutaway, lit, onHover, onOpen }: {
+function HouseRoom3D({ place, doc, cutaway, lift, lit, onHover, onOpen }: {
   place: HouseRoom
   doc: RoomDoc
   cutaway: boolean
+  /** how high its floor stands (m): its storey */
+  lift: number
   lit: boolean
   onHover: (on: boolean) => void
   onOpen: () => void
@@ -89,7 +104,7 @@ function HouseRoom3D({ place, doc, cutaway, lit, onHover, onOpen }: {
 
   return (
     // plan x → world x, plan y → world z; a clockwise turn on the plan is a turn about -y
-    <group position={[cm(place.x), 0, cm(place.y)]} rotation={[0, (-place.rot * Math.PI) / 180, 0]} onClick={click} onPointerOver={over} onPointerOut={out}>
+    <group position={[cm(place.x), lift, cm(place.y)]} rotation={[0, (-place.rot * Math.PI) / 180, 0]} onClick={click} onPointerOver={over} onPointerOut={out}>
       <FloorShape outline={roomPolygon(room)} color={room.floorColor} lit={lit} />
       {(room.closets ?? []).map((c) => <FloorShape key={c.id} outline={closetRecessPolygon(room, c)} color={shadeColor(room.floorColor, 0.92)} lit={lit} />)}
       {roomWalls(room).map((w) => <Wall key={w} room={room} wall={w} height={H} />)}

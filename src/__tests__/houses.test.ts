@@ -278,4 +278,29 @@ describe('houses', () => {
     expect([...empty.docs.keys()]).toEqual(['room-forest', 'room-bedroom-2'])
     expect(await useHouses.getState().importHouse({ kind: 'something else' })).toBeNull()
   })
+
+  it('moves rooms between floors, adds rooms to a floor, and keeps furniture on its floor', async () => {
+    const extra = { ...forestsRoom(), id: 'room-attic', name: 'Attic' }
+    storage.docs.set(extra.id, extra)
+    await useHouses.getState().refresh()
+    await useHouses.getState().open(HOME_ID)
+    await useHouses.getState().setLevel('room-bedroom-2', 1)
+    expect(storage.houses.get(HOME_ID)!.rooms[1].level).toBe(1)
+    // added to the first floor, it goes beside the rooms there, not beside the ground floor's
+    await useHouses.getState().addRoom('room-attic', 1)
+    const attic = storage.houses.get(HOME_ID)!.rooms.find((p) => p.roomId === 'room-attic')!
+    expect(attic.level).toBe(1)
+    const b2 = storage.houses.get(HOME_ID)!.rooms[1]
+    expect(polygonBounds(roomOnPlan(extra.room, attic)).x0).toBeGreaterThan(polygonBounds(roomOnPlan(storage.docs.get('room-bedroom-2')!.room, b2)).x1)
+    // a piece dropped where only a room on another floor is: it stays put
+    const onB2 = polygonBounds(roomOnPlan(storage.docs.get('room-bedroom-2')!.room, b2))
+    const forest = storage.houses.get(HOME_ID)!.rooms[0]
+    const forestBox = polygonBounds(roomOnPlan(storage.docs.get('room-forest')!.room, forest))
+    const clear = [onB2.x1 - 20, onB2.y0 + 20] as const
+    const overForest = clear[0] > forestBox.x0 && clear[0] < forestBox.x1 && clear[1] > forestBox.y0 && clear[1] < forestBox.y1
+    if (!overForest) expect(await useHouses.getState().moveItem('room-forest', 'forest-side', clear[0], clear[1])).toBeNull()
+    // back to the ground floor
+    await useHouses.getState().setLevel('room-bedroom-2', 0)
+    expect(storage.houses.get(HOME_ID)!.rooms[1].level).toBeUndefined()
+  })
 })

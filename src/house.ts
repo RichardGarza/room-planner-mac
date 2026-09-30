@@ -16,6 +16,8 @@ export interface HouseRoom {
   x: number
   y: number
   rot: QuarterTurn
+  /** which floor: 0 the ground floor (the default), 1 the first floor up, -1 a basement */
+  level?: number
 }
 
 export interface HouseDoc {
@@ -48,7 +50,8 @@ export function migrateHouse(raw: unknown): HouseDoc | null {
     if (typeof o.roomId !== 'string' || !o.roomId || seen.has(o.roomId) || !finite(o.x) || !finite(o.y)) continue
     seen.add(o.roomId)
     const rot = TURNS.includes(o.rot as QuarterTurn) ? (o.rot as QuarterTurn) : 0
-    rooms.push({ roomId: o.roomId, x: o.x, y: o.y, rot })
+    const level = finite(o.level) ? Math.max(-3, Math.min(10, Math.round(o.level))) : 0
+    rooms.push(level ? { roomId: o.roomId, x: o.x, y: o.y, rot, level } : { roomId: o.roomId, x: o.x, y: o.y, rot })
   }
   return {
     id: d.id,
@@ -58,6 +61,29 @@ export function migrateHouse(raw: unknown): HouseDoc | null {
     version: HOUSE_VERSION,
     rooms,
   }
+}
+
+/* ---------- floors ---------- */
+
+export const levelOf = (p: Pick<HouseRoom, 'level'>) => p.level ?? 0
+
+/** The floors the house has rooms on, lowest first (the ground floor when it has none). */
+export function levels(house: HouseDoc): number[] {
+  const set = new Set(house.rooms.map(levelOf))
+  return set.size ? [...set].sort((a, b) => a - b) : [0]
+}
+
+/** The house with only the rooms of one floor: what the map shows, snaps and connects. */
+export function onLevel(house: HouseDoc, level: number): HouseDoc {
+  return { ...house, rooms: house.rooms.filter((p) => levelOf(p) === level) }
+}
+
+/** "Ground floor", "First floor", "Basement", … */
+export function levelName(level: number): string {
+  if (level === 0) return 'Ground floor'
+  if (level < 0) return level === -1 ? 'Basement' : `Basement ${-level}`
+  const names = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth']
+  return `${names[level - 1] ?? `Floor ${level}`} floor`
 }
 
 /** -0 becomes 0 (turning a point can make one), so points compare equal. */
@@ -157,7 +183,8 @@ export function snapPlacement(house: HouseDoc, rooms: Map<string, Room>, moving:
   const room = rooms.get(moving.roomId)
   if (!room) return { place: moving, snapped: { x: false, y: false } }
   const mine = edgesOnPlan(room, moving)
-  const others = house.rooms.filter((r) => r.roomId !== moving.roomId && rooms.has(r.roomId)).flatMap((r) => edgesOnPlan(rooms.get(r.roomId)!, r))
+  // only rooms on the same floor
+  const others = house.rooms.filter((r) => r.roomId !== moving.roomId && rooms.has(r.roomId) && levelOf(r) === levelOf(moving)).flatMap((r) => edgesOnPlan(rooms.get(r.roomId)!, r))
   let dx: number | null = null, dy: number | null = null
   const consider = (axis: 'x' | 'y', shift: number) => {
     if (Math.abs(shift) > snap) return
@@ -183,7 +210,7 @@ export function snapPlacement(house: HouseDoc, rooms: Map<string, Room>, moving:
   // Doors: a door facing another room's door across the walls lines up with it along the wall; that
   // wins over lining up the walls' ends on the same axis (it is what you are after).
   let doorX: number | null = null, doorY: number | null = null
-  const others2 = house.rooms.filter((r) => r.roomId !== moving.roomId && rooms.has(r.roomId))
+  const others2 = house.rooms.filter((r) => r.roomId !== moving.roomId && rooms.has(r.roomId) && levelOf(r) === levelOf(moving))
   for (const dm of doorsOnPlan(room, moving)) {
     for (const r of others2) {
       for (const dn of doorsOnPlan(rooms.get(r.roomId)!, r)) {
@@ -292,6 +319,7 @@ export function connections(house: HouseDoc, docs: Record<string, { room: Room }
   for (let i = 0; i < placed.length; i++) {
     for (let j = i + 1; j < placed.length; j++) {
       const A = placed[i], B = placed[j]
+      if (levelOf(A) !== levelOf(B)) continue
       for (const da of doorsOnPlan(docs[A.roomId].room, A)) {
         for (const db of doorsOnPlan(docs[B.roomId].room, B)) {
           // facing each other across the wall
