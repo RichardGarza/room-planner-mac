@@ -10,7 +10,7 @@ class MemoryStorage {
 ;(globalThis as unknown as { localStorage: MemoryStorage }).localStorage = new MemoryStorage()
 
 import { floorBounds } from '../geometry'
-import { WALL_GAP, roomOnPlan, type HouseDoc } from '../house'
+import { WALL_GAP, roomOnPlan, type HouseDoc, type HouseRoom } from '../house'
 import { HOME_ID, useHouses } from '../houses'
 import { useLibrary } from '../library'
 import { bedroomTwo, forestsRoom } from '../seeds'
@@ -95,5 +95,38 @@ describe('houses', () => {
     await Promise.all([useHouses.getState().refresh(), useHouses.getState().refresh()])
     expect(saves).toBe(1)
     expect(useHouses.getState().houses.map((h) => h.id)).toEqual([HOME_ID])
+  })
+
+  it('moves, turns, adds and takes out rooms, saving each change straight away', async () => {
+    const extra = { ...forestsRoom(), id: 'room-study', name: 'Study' }
+    storage.docs.set(extra.id, extra)
+    await useHouses.getState().refresh()
+    await useHouses.getState().open(HOME_ID)
+    const saved = () => storage.houses.get(HOME_ID)!
+
+    await useHouses.getState().moveRoom('room-bedroom-2', 1000.4, 20.6)
+    expect(saved().rooms[1]).toMatchObject({ roomId: 'room-bedroom-2', x: 1000, y: 21 })
+
+    // a quarter turn about its middle: the middle stays put
+    const middle = (p: HouseRoom) => { const b = polygonBounds(roomOnPlan(storage.docs.get(p.roomId)!.room, p)); return [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2] }
+    const before = middle(saved().rooms[0])
+    await useHouses.getState().turnRoom('room-forest')
+    expect(saved().rooms[0].rot).toBe(90)
+    const after = middle(saved().rooms[0])
+    expect(after[0]).toBeCloseTo(before[0], -0.5)
+    expect(after[1]).toBeCloseTo(before[1], -0.5)
+
+    // added to the right of the house, a wall's thickness past it
+    await useHouses.getState().addRoom('room-study')
+    const study = saved().rooms.find((p) => p.roomId === 'room-study')!
+    const others = saved().rooms.filter((p) => p.roomId !== 'room-study')
+    const right = Math.max(...others.map((p) => polygonBounds(roomOnPlan(storage.docs.get(p.roomId)!.room, p)).x1))
+    expect(polygonBounds(roomOnPlan(extra.room, study)).x0 - (right + 0)).toBeGreaterThanOrEqual(WALL_GAP - 1)
+    expect(useHouses.getState().rooms['room-study']).toBeTruthy()
+
+    // taken out of the house; the room itself stays
+    await useHouses.getState().removeRoom('room-study')
+    expect(saved().rooms.map((p) => p.roomId)).toEqual(['room-forest', 'room-bedroom-2'])
+    expect(storage.docs.has('room-study')).toBe(true)
   })
 })

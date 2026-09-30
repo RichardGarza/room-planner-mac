@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import { floorBounds } from './geometry'
-import { HOUSE_VERSION, WALL_GAP, type HouseDoc, type HouseRoom } from './house'
+import { floorBounds, polygonBounds } from './geometry'
+import { HOUSE_VERSION, WALL_GAP, houseBounds, roomOnPlan, type HouseDoc, type HouseRoom, type QuarterTurn } from './house'
 import { libraryStorage, seedKey } from './library'
 import { migrateDoc } from './migrate'
-import type { RoomDoc } from './types'
+import type { Room, RoomDoc } from './types'
 
 /*
  * The houses in the library and the one on screen (the house map). A house only places rooms; the
@@ -29,6 +29,14 @@ interface HousesState {
   open: (id: string) => Promise<void>
   /** Leave the house map for the library. */
   close: () => void
+  /** Arranging the current house (each saved straight away): */
+  moveRoom: (roomId: string, x: number, y: number) => Promise<void>
+  /** a quarter turn clockwise, about the room's middle so it turns in place */
+  turnRoom: (roomId: string) => Promise<void>
+  /** a room from the library, placed to the right of the house */
+  addRoom: (roomId: string) => Promise<void>
+  /** take a room out of the house (the room itself stays in the library) */
+  removeRoom: (roomId: string) => Promise<void>
 }
 
 function flagGet(key: string) {
@@ -117,4 +125,60 @@ export const useHouses = create<HousesState>((set, get) => ({
   },
 
   close: () => set({ currentId: null, rooms: {}, status: 'idle', error: null }),
+
+  moveRoom: (roomId, x, y) => update((h) => ({ ...h, rooms: h.rooms.map((p) => (p.roomId === roomId ? { ...p, x: Math.round(x), y: Math.round(y) } : p)) })),
+
+  turnRoom: (roomId) => update((h) => ({
+    ...h,
+    rooms: h.rooms.map((p) => {
+      const doc = get().rooms[roomId]
+      if (p.roomId !== roomId || !doc) return p
+      const middle = (q: HouseRoom) => { const b = polygonBounds(roomOnPlan(doc.room, q)); return [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2] }
+      const [cx, cy] = middle(p)
+      const rot = ((p.rot + 90) % 360) as QuarterTurn
+      const [nx, ny] = middle({ ...p, x: 0, y: 0, rot })
+      return { ...p, x: Math.round(cx - nx), y: Math.round(cy - ny), rot }
+    }),
+  })),
+
+  addRoom: async (roomId) => {
+    const house = currentHouse()
+    if (!house || house.rooms.some((p) => p.roomId === roomId)) return
+    const s = await libraryStorage()
+    const raw = await s.load(roomId).catch(() => null)
+    const doc = raw ? migrateDoc(raw) : null
+    if (!doc) return set({ error: 'That room could not be found.' })
+    set({ rooms: { ...get().rooms, [roomId]: doc } })
+    // to the right of everything already there, tops lined up
+    const b = houseBounds(house, new Map(Object.entries(get().rooms).map(([id, d]) => [id, d.room] as [string, Room])))
+    const f = floorBounds(doc.room)
+    const x = b ? b.x1 + WALL_GAP - f.x0 : -f.x0
+    const y = b ? b.y0 - f.y0 : -f.y0
+    await update((h) => ({ ...h, rooms: [...h.rooms, { roomId, x: Math.round(x), y: Math.round(y), rot: 0 }] }))
+  },
+
+  removeRoom: async (roomId) => {
+    const { [roomId]: _gone, ...rest } = get().rooms
+    set({ rooms: rest })
+    await update((h) => ({ ...h, rooms: h.rooms.filter((p) => p.roomId !== roomId) }))
+  },
 }))
+
+function currentHouse(): HouseDoc | undefined {
+  const st = useHouses.getState()
+  return st.houses.find((h) => h.id === st.currentId)
+}
+
+/** Change the house on screen and save it straight away (a failed save is shown, the change kept on screen). */
+async function update(change: (h: HouseDoc) => HouseDoc) {
+  const house = currentHouse()
+  if (!house) return
+  const next: HouseDoc = { ...change(house), updatedAt: new Date().toISOString() }
+  useHouses.setState((st) => ({ houses: st.houses.map((h) => (h.id === next.id ? next : h)) }))
+  try {
+    const s = await libraryStorage()
+    await s.saveHouse?.(next)
+  } catch (e) {
+    useHouses.setState({ status: 'error', error: `Could not save the house: ${errorText(e)}` })
+  }
+}

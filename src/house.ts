@@ -1,4 +1,4 @@
-import { polygonBounds, polygonOf, pointInOutline, roomPolygon, segmentsCross, type Polygon } from './geometry'
+import { floorBounds, polygonBounds, polygonOf, pointInOutline, roomPolygon, segmentsCross, type Polygon } from './geometry'
 import type { Item, Rect, Room, Rot } from './types'
 
 /*
@@ -97,13 +97,19 @@ export function itemOnPlan(item: Item, p: HouseRoom): Polygon {
   return polygonOf(item).map((pt) => toHouse(p, pt))
 }
 
-/** The box around every placed room (rooms whose file is missing are skipped); null for an empty house. */
+/** The box around a placed room's floor, closets included, on the house plan. */
+export function floorOnPlan(room: Room, p: HouseRoom): Rect {
+  const f = floorBounds(room)
+  return polygonBounds(([[f.x0, f.y0], [f.x1, f.y0], [f.x1, f.y1], [f.x0, f.y1]] as [number, number][]).map((pt) => toHouse(p, pt)))
+}
+
+/** The box around every placed room, closets included (rooms whose file is missing are skipped); null for an empty house. */
 export function houseBounds(house: HouseDoc, rooms: Map<string, Room>): Rect | null {
   let b: Rect | null = null
   for (const p of house.rooms) {
     const room = rooms.get(p.roomId)
     if (!room) continue
-    const r = polygonBounds(roomOnPlan(room, p))
+    const r = floorOnPlan(room, p)
     b = b ? { x0: Math.min(b.x0, r.x0), y0: Math.min(b.y0, r.y0), x1: Math.max(b.x1, r.x1), y1: Math.max(b.y1, r.y1) } : r
   }
   return b
