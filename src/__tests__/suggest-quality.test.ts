@@ -662,9 +662,11 @@ describe('the refinements after the first review', () => {
     expect(t.x0).toBeGreaterThanOrEqual(leaf + DOOR_MARGIN)
     expect(t.x1).toBeLessThanOrEqual(280 - CLOSET_MARGIN)
     expect(t.x0).toBeLessThanOrEqual(leaf + DOOR_MARGIN + 5)
-    // and 10 cm narrower again it no longer fits at all: left out rather than pushed onto the leaf's line
+    // and 10 cm narrower again it no longer fits cleanly: it is still in (every piece in the room is),
+    // and the layout owns up to it instead of pretending it fits
     const tighter: Room = { ...room, w: 310, closets: room.closets.map((c) => (c.wall === 'top' ? { ...c, width: 310 } : c)) }
     const [noFit] = suggestLayouts(tighter, items)
-    expect(noFit.placements.dresser.inRoom).toBe(false)
+    expect(noFit.placements.dresser.inRoom).toBe(true)
+    expect(noFit.description).toMatch(/no clean spot/)
   })
 })

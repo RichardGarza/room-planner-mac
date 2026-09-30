@@ -111,23 +111,23 @@ describe('suggestLayouts', () => {
     expect(beside.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('leaves the bed out of a room that is too small for it, and says so instead of pretending it is on a wall', () => {
+  it('puts every piece in the room in, even a bed too big for the room, and says so instead of pretending it is on a wall', () => {
     const room = makeEmptyRoom('tiny', 160, 160)
     const items = [item('bed', 'bed', 190, 212, 95), item('chair', 'chair', 40, 40, 60)]
     const layouts = suggestLayouts(room, items)
     expect(layouts.length).toBeGreaterThanOrEqual(1)
-    expect(layouts[0].placements.bed.inRoom).toBe(false)
-    expect(layouts[0].placements.chair.inRoom).toBe(true)
-    // titled after the biggest piece that did fit, not after the bed
-    expect(layouts[0].name).toMatch(/^A · Chair (against the \w+ wall|in the \w+-\w+ corner|under the window)/)
-    expect(layouts[0].name).not.toMatch(/[Bb]ed/)
-    expect(layouts[0].description).toMatch(/^The bed does not fit in this room; the chair stands /)
-    expect(layouts[0].description).not.toMatch(/did not fit/)
-    // with nothing else to name it after
+    for (const l of layouts) {
+      expect(l.placements.bed.inRoom).toBe(true)
+      expect(l.placements.chair.inRoom).toBe(true)
+    }
+    expect(layouts[0].name).toBe('A · Bed does not fit cleanly')
+    expect(layouts[0].description).toMatch(/^The bed has no clean spot in this room and stands where it is in the way least\. Watch out: [Bb]ed goes through a wall/)
+    // with nothing else in the room
     const [alone] = suggestLayouts(room, [item('bed', 'bed', 190, 212, 95)])
-    expect(alone.name).toBe('A · Without the bed')
-    expect(alone.description).toMatch(/^The bed does not fit in this room\./)
+    expect(alone.placements.bed.inRoom).toBe(true)
+    expect(alone.name).toBe('A · Bed does not fit cleanly')
   })
+
 
   it('leaves furniture the user took out of the room where it is, out of the room', () => {
     const room = makeEmptyRoom('t', 300, 400)
@@ -221,5 +221,24 @@ describe('store suggestions', () => {
     expect(useStore.getState().suggestionsStale).toBe(false)
     s.setRoom({ w: 350 })
     expect(useStore.getState().suggestionsStale).toBe(true)
+  })
+})
+
+describe('suggestions use exactly the furniture in the room', () => {
+  it('puts every piece that is in the room into every suggestion, and leaves every piece taken out where it is', async () => {
+    const { bedroomTwo, forestsRoom } = await import('../seeds')
+    const { exampleDoc } = await import('../library')
+    for (const doc of [forestsRoom(), bedroomTwo(), exampleDoc()]) {
+      // take the first piece out, bring every other one in
+      const items = doc.items.map((it, i) => (i === 0 ? { ...it, inRoom: false, x: 60, y: doc.room.d + 90 } : { ...it, inRoom: true }))
+      const layouts = suggestLayouts(doc.room, items)
+      expect(layouts.length, doc.name).toBeGreaterThan(0)
+      for (const l of layouts) {
+        for (const it of items) {
+          if (it.inRoom) expect(l.placements[it.id]?.inRoom, `${it.name} in ${l.name} (${doc.name})`).toBe(true)
+          else expect(l.placements[it.id], `${it.name} stays out in ${l.name} (${doc.name})`).toEqual({ x: it.x, y: it.y, rot: it.rot, inRoom: false })
+        }
+      }
+    }
   })
 })

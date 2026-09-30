@@ -1,5 +1,6 @@
 import { isAccessCheck, runChecks } from './checks'
 import { accessAllows, accessRuleFor, accessZones, areCompanions, closetClearance, doorSwing, isSide, rectInRoom, sideOf, wallFacing, wallStripPolygon, footprint, fractionInRoom, frontZone, intersects, isAxisAligned, isRealBed, isRugKind, isSideTable, itemsGap, localToRoom, overlapArea, polygonBounds, polygonDistance, polygonIntersectsRect, polygonOf, rectDistance, rectOf, rectToPolygon, snap90, type AccessRule, type Polygon, wallLength, wallStripRect } from './geometry'
+import { findFreeSpot } from './placement'
 import type { Check, Item, ItemKind, ItemPlacement, Layout, Rect, Room, Rot, Wall } from './types'
 
 /**
@@ -155,6 +156,8 @@ interface Scored {
   deskByWindow: boolean
   pathsOk: boolean
   leftOut: Item[]
+  /** pieces that had no clean spot and were put in anyway, where they are in the way least (see forceIn) */
+  forced?: Item[]
   /** some pair stands closer than MIN_GAP, or a nightstand or side table is away from its bed or sofa */
   crowded: boolean
   /** the pairs that stand closer than MIN_GAP, closest first */
@@ -1383,7 +1386,10 @@ function largestPlaced(anchor: Item, s: Scored): Item | null {
 function titleOf(ctx: Ctx, anchor: Item, s: Scored) {
   const placed = s.items.find((i) => i.id === anchor.id)?.inRoom ?? false
   let title: string
-  if (!placed) {
+  if ((s.forced ?? []).some((i) => i.id === anchor.id)) {
+    // the anchor was put in without a clean spot: say so rather than describe a wall it is not on
+    title = `${capitalise(shortName(anchor))} does not fit cleanly`
+  } else if (!placed) {
     // the anchor did not fit: name the layout after the biggest piece that did
     const big = largestPlaced(anchor, s)
     title = big ? `${capitalise(shortName(big))} ${whereIs(ctx, big)}` : `Without the ${shortName(anchor)}`
@@ -1450,8 +1456,11 @@ function describe(ctx: Ctx, anchor: Item, s: Scored) {
   const bed = s.items.find((i) => i.id === anchor.id)!
   // without the anchor the layout is named after the biggest piece that did fit, even a chair: say where it went
   if (!bed.inRoom && !big.length) { const b = largestPlaced(anchor, s); if (b) big.push(b) }
+  const forced = s.forced ?? []
+  const anchorForced = forced.some((i) => i.id === anchor.id)
   const anchorSentence = !bed.inRoom
     ? `The ${shortName(anchor)} does not fit in this room`
+    : anchorForced ? `The ${shortName(anchor)} has no clean spot in this room and stands where it is in the way least`
     : anchor.kind === 'bed' ? `The bed ${bedWhere(ctx, bed, s)}` : `The ${shortName(anchor)} stands ${whereIs(ctx, bed)}`
   const others = big.map((i) => `the ${shortName(i)} ${i.kind === 'desk' ? 'sits' : 'stands'} ${whereIs(ctx, i)}`)
   const first = others.length ? `${anchorSentence}; ${others.length > 1 ? `${others.slice(0, -1).join(', ')} and ${others[others.length - 1]}` : others[0]}.` : `${anchorSentence}.`
@@ -1471,7 +1480,9 @@ function describe(ctx: Ctx, anchor: Item, s: Scored) {
   // the anchor's own absence is already the first sentence
   const leftOut = s.leftOut.filter((i) => i.id !== anchor.id)
   const out = leftOut.length ? ` ${capitalise(listNames(leftOut))} did not fit and ${leftOut.length > 1 ? 'stay' : 'stays'} out of the room.` : ''
-  return `${first} ${second}${accessNote(s)}${adrift}${kept}${out}`
+  const squeezed = forced.filter((i) => i.id !== anchor.id)
+  const inAnyway = squeezed.length ? ` ${capitalise(listNames(squeezed))} ${squeezed.length > 1 ? 'have' : 'has'} no clean spot and ${squeezed.length > 1 ? 'stand' : 'stands'} where ${squeezed.length > 1 ? 'they are' : 'it is'} in the way least.` : ''
+  return `${first} ${second}${accessNote(s)}${adrift}${kept}${out}${inAnyway}`
 }
 
 /** " The side table could not go beside the recliner, and the hamper stands in the open." — the pieces that did not land where they belong. */
@@ -1636,7 +1647,22 @@ export function suggestLayouts(room: Room, items: Item[], opts: SuggestOptions =
   pick(results.filter((r) => hardClean(r) && !isClean(r)), Math.min(max, chosen.length + TRADE_OFFS), (r) => !chosen.some((c) => c.head.wall === r.head.wall))
   if (!chosen.length) pick(results.filter((r) => !hardClean(r)))
 
-  return chosen.map((s, i) => toLayout(ctx, anchor, s, parked, i))
+  // every piece in the room is in every suggestion: one with no clean spot goes where it is in the
+  // way least, and the checks and the description say what that costs
+  return chosen.map((s) => (s.leftOut.length ? forceIn(ctx, anchor, s) : s)).map((s, i) => toLayout(ctx, anchor, s, parked, i))
+}
+
+/** The arrangement with its left-out pieces put in anyway, biggest first, each on the least bad spot. */
+function forceIn(ctx: Ctx, anchor: Item, s: Scored): Scored {
+  let all = s.items
+  const forced: Item[] = []
+  for (const out of [...s.leftOut].sort((a, b) => b.w * b.d - a.w * a.d)) {
+    const spot = findFreeSpot(ctx.room, all.filter((i) => i.inRoom), out.w, out.d, { h: out.h, kind: out.kind })
+    const placed: Item = { ...out, x: spot.x, y: spot.y, rot: spot.rot, inRoom: true }
+    all = all.map((i) => (i.id === out.id ? placed : i))
+    forced.push(placed)
+  }
+  return { ...scoreArrangement(ctx, anchor, all, s.order), forced }
 }
 
 /** how many layouts that pass the hard rules but not the soft ones may join the clean ones */
