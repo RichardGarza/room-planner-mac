@@ -87,4 +87,13 @@ describe('houses', () => {
     expect(useHouses.getState().houses).toEqual([])
     expect(storage.seeded.has(HOME_ID)).toBe(false)
   })
+
+  it('adds "Home" once even when two refreshes start together (the app starts twice in development)', async () => {
+    let saves = 0
+    const save = storage.saveHouse.bind(storage)
+    storage.saveHouse = async (h) => { saves += 1; await save(h) }
+    await Promise.all([useHouses.getState().refresh(), useHouses.getState().refresh()])
+    expect(saves).toBe(1)
+    expect(useHouses.getState().houses.map((h) => h.id)).toEqual([HOME_ID])
+  })
 })

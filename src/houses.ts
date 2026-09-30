@@ -59,6 +59,33 @@ async function homeHouse(load: (id: string) => Promise<RoomDoc | null>): Promise
   return { id: HOME_ID, name: 'Home', createdAt: ts, updatedAt: ts, version: HOUSE_VERSION, rooms: placed }
 }
 
+/** the refresh under way, if any: a second call waits for it instead of running alongside (and seeding "Home" twice) */
+let refreshing: Promise<void> | null = null
+
+/** List the houses and add "Home" the first time (see HousesState.refresh). */
+async function doRefresh(): Promise<void> {
+  const set = useHouses.setState
+  try {
+    const s = await libraryStorage()
+    if (!s.listHouses || !s.saveHouse) return set({ houses: [] })
+    let houses = await s.listHouses()
+    const shared = new Set(s.seededIds ? await s.seededIds().catch(() => []) : [])
+    if (!houses.some((h) => h.id === HOME_ID) && !shared.has(HOME_ID) && !flagGet(seedKey(HOME_ID))) {
+      const load = async (id: string) => { const raw = await s.load(id); return raw ? migrateDoc(raw) : null }
+      const home = await homeHouse(load)
+      if (home) {
+        await s.saveHouse(home)
+        houses = [...houses, home]
+        flagSet(seedKey(HOME_ID))
+        await s.markSeeded?.([HOME_ID]).catch((err: unknown) => console.warn('Could not record the seeded house', err))
+      }
+    }
+    set({ houses: houses.sort((a, b) => a.name.localeCompare(b.name)), error: null })
+  } catch (e) {
+    set({ status: 'error', error: `Could not read the houses: ${errorText(e)}` })
+  }
+}
+
 export const useHouses = create<HousesState>((set, get) => ({
   houses: [],
   currentId: null,
@@ -66,26 +93,9 @@ export const useHouses = create<HousesState>((set, get) => ({
   status: 'idle',
   error: null,
 
-  refresh: async () => {
-    try {
-      const s = await libraryStorage()
-      if (!s.listHouses || !s.saveHouse) return set({ houses: [] })
-      let houses = await s.listHouses()
-      const shared = new Set(s.seededIds ? await s.seededIds().catch(() => []) : [])
-      if (!houses.some((h) => h.id === HOME_ID) && !shared.has(HOME_ID) && !flagGet(seedKey(HOME_ID))) {
-        const load = async (id: string) => { const raw = await s.load(id); return raw ? migrateDoc(raw) : null }
-        const home = await homeHouse(load)
-        if (home) {
-          await s.saveHouse(home)
-          houses = [...houses, home]
-          flagSet(seedKey(HOME_ID))
-          await s.markSeeded?.([HOME_ID]).catch((err: unknown) => console.warn('Could not record the seeded house', err))
-        }
-      }
-      set({ houses: houses.sort((a, b) => a.name.localeCompare(b.name)), error: null })
-    } catch (e) {
-      set({ status: 'error', error: `Could not read the houses: ${errorText(e)}` })
-    }
+  refresh: () => {
+    refreshing ??= doRefresh().finally(() => { refreshing = null })
+    return refreshing
   },
 
   open: async (id) => {

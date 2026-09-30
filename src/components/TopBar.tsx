@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { presetLayouts } from '../data'
 import { useLibrary } from '../library'
+import { useHouses } from '../houses'
 import { isTauri } from '../storage'
 import { useStore } from '../store'
 import type { Layout } from '../types'
@@ -35,6 +36,8 @@ export function TopBar() {
   const status = useLibrary((s) => s.status)
   const error = useLibrary((s) => s.error)
   const close = useLibrary((s) => s.close)
+  // opened from a house map: the back button goes back to it
+  const houseName = useHouses((s) => s.houses.find((h) => h.id === s.currentId)?.name ?? null)
   const rename = useLibrary((s) => s.rename)
   const unit = useUnits((s) => s.unit)
   const [toast, setToast] = useState<string | null>(null)
@@ -126,7 +129,9 @@ export function TopBar() {
     <>
     <header className="topbar">
       <div className="brand">
-        <button className="back" onClick={() => void close()} title="Back to your rooms">‹ Rooms</button>
+        {houseName
+          ? <button className="back" onClick={() => void close()} title={`Back to the map of ${houseName}`}>‹ {houseName}</button>
+          : <button className="back" onClick={() => void close()} title="Back to your rooms">‹ Rooms</button>}
         <span className="logo">R</span>
         <div>
           <div className="room-name-row">

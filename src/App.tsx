@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { FloorPlan } from './components/FloorPlan'
+import { HouseMap } from './components/HouseMap'
 import { Library } from './components/Library'
+import { useHouses } from './houses'
 import { PrintDialog, usePrintDialog } from './components/PrintDialog'
 import { Scene3D } from './components/Scene3D'
 import { Sidebar } from './components/Sidebar'
@@ -20,10 +22,11 @@ const ANGLES: { id: OutsideAngle; label: string }[] = [
 
 export default function App() {
   const currentId = useLibrary((s) => s.currentId)
+  const houseId = useHouses((s) => s.currentId)
   const start = useLibrary((s) => s.start)
 
-  // load the room list (and a shared link, if the URL has one) once
-  useEffect(() => { void start() }, [start])
+  // load the room list (and a shared link, if the URL has one) once, then the houses
+  useEffect(() => { void start().then(() => useHouses.getState().refresh()) }, [start])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -69,7 +72,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  if (!currentId) return <Library />
+  // a room open in the planner; else the house map when a house is open; else the library
+  if (!currentId) return houseId ? <HouseMap /> : <Library />
   return <Planner />
 }
 

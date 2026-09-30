@@ -99,4 +99,10 @@ describe('rooms folder', () => {
     expect(await readdir(join(dir, 'Houses'))).toEqual([])
     expect((await fetch(`${base}/_houses/..%2Fx`, { method: 'PUT', body: '{}' })).status).toBe(400)
   })
+
+  it('survives two saves of the same file at once', async () => {
+    const statuses = await Promise.all([1, 2, 3].map((i) => fetch(`${base}/_houses/house-home`, { method: 'PUT', body: JSON.stringify({ id: 'house-home', name: 'Home', v: i, rooms: [] }) }).then((r) => r.status)))
+    expect(statuses).toEqual([200, 200, 200])
+    expect((await readdir(join(dir, 'Houses'))).filter((n) => !n.startsWith('.'))).toEqual(['home--house-home.json'])
+  })
 })

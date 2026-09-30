@@ -90,7 +90,7 @@ plan) and moved by `(x, y)`. Two rooms that share a wall stand a wall's thicknes
 
 ## Status
 
-- [ ] Sprint 1
+- [x] Sprint 1: the house on a map. "Your house" on the start screen opens the map of "Home" (Forest's Room and Bedroom 2 side by side); scroll to zoom, drag to move, click a room to open it, "‹ Home" goes back. Houses are saved in `Houses/` and backed up.
 - [ ] Sprint 2
 - [ ] Sprint 3
 - [ ] Sprint 4

@@ -1,5 +1,7 @@
 import { plannerTitle, useOwner } from '../owner'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useHouses } from '../houses'
+import './house.css'
 import { getStorage } from '../storage'
 import { defaultRoomSize, timeAgo, useLibrary, type StartWith } from '../library'
 import { migrateDoc } from '../migrate'
@@ -14,6 +16,8 @@ const FLASH_MS = 1600
 
 /** Home screen: two big ways in (new room / existing room), then every saved room, grouped. */
 export function Library() {
+  const houses = useHouses((s) => s.houses)
+  const openHouse = useHouses((s) => s.open)
   const rooms = useLibrary((s) => s.rooms)
   const groups = useLibrary((s) => s.groups)
   const status = useLibrary((s) => s.status)
@@ -108,6 +112,23 @@ export function Library() {
           <span>{error}</span>
           <button className="chip ghost" onClick={() => useLibrary.setState({ error: null, status: 'idle' })}>Dismiss</button>
         </div>
+      )}
+
+      {houses.length > 0 && (
+        <section className="lib-houses" aria-label="Your house">
+          <h2>Your house</h2>
+          <div className="lib-houses-list">
+            {houses.map((h) => (
+              <button key={h.id} type="button" className="lib-house" onClick={() => void openHouse(h.id)}>
+                <span className="lib-action-icon" aria-hidden="true"><RoomIcon /></span>
+                <span>
+                  <strong>{h.name}</strong>
+                  <span>{h.rooms.length} room{h.rooms.length === 1 ? '' : 's'} · see them all on one map</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
 
       <div ref={listRef} className={flash ? 'lib-rooms flash' : 'lib-rooms'}>

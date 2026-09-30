@@ -68,7 +68,8 @@ export async function loadDoc(dir: string, id: string): Promise<unknown | null> 
 export async function saveDoc(dir: string, doc: DocLike) {
   const target = fileNameFor(doc)
   const stale = (await roomFiles(dir)).filter((n) => n.endsWith(`${SEP}${doc.id}.json`) && n !== target)
-  const tmp = join(dir, `.${target}.tmp`)
+  // a temp name of its own, so two saves at once never trip over each other's file
+  const tmp = join(dir, `.${target}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`)
   await writeFile(tmp, JSON.stringify(doc, null, 2))
   await rename(tmp, join(dir, target))
   // the room was renamed: drop the file that carried the old name

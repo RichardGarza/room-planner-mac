@@ -4,7 +4,7 @@ Will the new bed fit? Room Planner is a small app for trying furniture layouts i
 
 It runs in the browser and as a native Mac app. This repository is the Mac and web edition; the Windows version lives in its own repository.
 
-**Next up: the house view.** Fit all your rooms together into one house: a map and a 3D model of the whole home, where you click into any room and drag furniture between rooms. See [docs/HOUSE_ROADMAP.md](docs/HOUSE_ROADMAP.md) for the plan and progress.
+**The house view (in progress).** Your rooms fit together into one house. "Your house" on the start screen opens a map of the whole home, every room at its place with its furniture: scroll to zoom, drag to move around, click a room to open it, and the back button returns to the map. Houses are saved in `~/Documents/Room Planner/Houses/` next to the rooms and backed up with them; a house only places rooms, so your rooms and layouts stay exactly as they are. Arranging rooms, moving furniture between rooms and a 3D house are next: see [docs/HOUSE_ROADMAP.md](docs/HOUSE_ROADMAP.md).
 
 ## What it does
 
@@ -104,6 +104,9 @@ Vite, React 19, TypeScript, Three.js via react-three-fiber and drei, zustand for
 | `src/migrate.ts` | Loads rooms saved by older versions |
 | `src/store.ts` | Planner state: items, undo/redo, layouts, view, settings, share link |
 | `src/library.ts` | Rooms library: documents, groups, autosave, import/export |
+| `src/house.ts` | Houses: where each room sits, room ↔ house coordinates |
+| `src/houses.ts` | The houses in the library, the seed house "Home", the house on screen |
+| `src/components/HouseMap.tsx` | The house map: every room at its place; click to open one |
 | `src/outline.ts` | Drawn room shapes: walls from lengths and angles and back, tidying, moving openings onto new walls |
 | `src/components/WallEditor.tsx` | The Edit walls dialog: draw on a grid, then lengths and angles |
 | `src/storage/` | Storage backends: Tauri files, the dev server's rooms folder, browser local storage; backups (`backup.ts`) and save-before-quit (`quit.ts`) |

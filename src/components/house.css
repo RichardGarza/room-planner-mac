@@ -1,0 +1,25 @@
+/* The house map (HouseMap.tsx) and the "Your house" entry on the start screen */
+
+.house { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+.house-head { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.house-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.house-title h1 { font-size: 17px; font-weight: 900; margin: 0; }
+.house-note { margin: 8px 18px 0; }
+.house-map { flex: 1; min-height: 0; width: 100%; cursor: grab; touch-action: none; user-select: none; }
+.house-map:active { cursor: grabbing; }
+.house-room { cursor: pointer; }
+.house-room:focus { outline: none; }
+.house-hit { fill: transparent; stroke: transparent; stroke-width: 6; }
+.house-room.hover .house-hit, .house-room:focus-visible .house-hit { fill: rgba(229, 64, 122, 0.07); stroke: var(--pink); }
+.house-label text { font-weight: 900; fill: #2f2a26; paint-order: stroke; stroke: rgba(251, 247, 242, 0.9); stroke-width: 5px; stroke-linejoin: round; }
+.house-label .house-size { font-weight: 700; fill: var(--muted); }
+.house-loading { font-size: 28px; fill: var(--muted); }
+
+.lib-houses { display: flex; flex-direction: column; gap: 10px; }
+.lib-houses-list { display: flex; gap: 12px; flex-wrap: wrap; }
+.lib-house { display: flex; align-items: center; gap: 14px; padding: 14px 18px; background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow); border: 2px solid transparent; text-align: left; min-width: 260px; }
+.lib-house:hover, .lib-house:focus-visible { border-color: var(--pink); outline: none; }
+.lib-house strong { font-size: 15px; font-weight: 900; display: block; }
+.lib-house span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.lib-house .lib-action-icon { width: 42px; height: 42px; }
+.lib-house .lib-action-icon svg { width: 22px; height: 22px; }
