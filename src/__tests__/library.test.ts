@@ -180,14 +180,13 @@ describe('library', () => {
     useStore.getState().setRoom({ d: 444 })
     expect(useLibrary.getState().status).toBe('dirty')
 
-    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS - 50)
-    expect(useLibrary.getState().status).toBe('dirty')
+    // nothing is written in the middle of a burst of updates…
     expect(storage.saves).toBe(savesBefore)
 
-    // the save starts at the debounce and finishes once the (fake) storage resolves
+    // …and the whole burst is written straight after it, in one save
     const seen: string[] = []
     const unsub = useLibrary.subscribe((s) => { seen.push(s.status) })
-    await vi.advanceTimersByTimeAsync(60)
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS + 1)
     unsub()
     expect(seen).toContain('saving')
     expect(useLibrary.getState().status).toBe('saved')

@@ -84,7 +84,12 @@ export const SEEDED_KEY = 'room-planner.seeded'
 export const EXAMPLE_ID = 'room-example'
 /** Per-document flag: this seed was added once. It stays after the room is deleted. */
 export const seedKey = (id: string) => `${SEEDED_KEY}.${id}`
-export const AUTOSAVE_MS = 400
+/**
+ * A change is written as soon as the burst of updates it came in is done (0 ms: the next tick).
+ * While a pointer is held down (a drag, a slider) it waits and is written the moment it is released,
+ * so nothing is ever left unsaved for long: quitting the app cannot lose an edit.
+ */
+export const AUTOSAVE_MS = 0
 
 /* ---------- helpers ---------- */
 
@@ -426,12 +431,28 @@ export const useLibrary = create<LibraryState>((set, get) => {
     if (inFlight === p) inFlight = null
   }
 
+  /** true while a mouse button or finger is down anywhere in the page */
+  let pointerDown = false
+  const scheduleSave = () => {
+    clearTimer()
+    timer = setTimeout(() => { void flush() }, AUTOSAVE_MS)
+  }
   const markDirty = () => {
     changeSeq += 1
     unsaved = true
     set({ status: 'dirty' })
-    clearTimer()
-    timer = setTimeout(() => { void flush() }, AUTOSAVE_MS)
+    // mid-drag: written when the pointer is let go (below)
+    if (!pointerDown) scheduleSave()
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pointerdown', () => { pointerDown = true }, true)
+    const release = () => {
+      pointerDown = false
+      if (unsaved && !timer) scheduleSave()
+    }
+    window.addEventListener('pointerup', release, true)
+    window.addEventListener('pointercancel', release, true)
+    window.addEventListener('blur', release)
   }
 
   /** Write what is waiting to be saved, if anything (an untouched room is not written, so it stays untouched). */
