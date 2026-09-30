@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { CLOSET_HEIGHT, closetRecessPolygon, isRugKind, roomPolygon, roomWalls, wallFacing, wallFrame, wallLength, type Polygon } from '../geometry'
 import { houseBounds, levelOf, type HouseDoc, type HouseRoom } from '../house'
-import type { AnyWall, Item, Room, RoomDoc } from '../types'
+import type { AnyWall, Room, RoomDoc } from '../types'
+import { FurnitureModel } from './Furniture'
 import { cm, shadeColor, useDisposable, WALL_T } from './util'
 
 /*
  * The whole house in 3D, as a mass model: every room at its place on the house map, with its floor,
  * its walls (cut away at waist height by default, so you look in from above), door and window gaps,
- * closets, and its furniture as blocks of the right size and colour. Orbit and zoom like the room's
+ * closets, and its furniture as it looks in the room itself. Orbit and zoom like the room's
  * outside view; hover a room to light it up, click it to open it in the planner.
  *
  * It does not use the planner's 3D pieces (those follow the one room open in the planner); the
@@ -92,6 +93,7 @@ function HouseRoom3D({ place, doc, cutaway, lift, lit, onHover, onOpen }: {
   onOpen: () => void
 }) {
   const { room, items } = doc
+  const rugs = items.filter((i) => i.inRoom && isRugKind(i.kind)).map((i) => i.id)
   const H = cutaway ? Math.min(CUT, cm(room.h)) : cm(room.h)
   // a click that ended an orbit drag is not a click
   const click = (e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); if (e.delta < 6) onOpen() }
@@ -109,7 +111,8 @@ function HouseRoom3D({ place, doc, cutaway, lift, lit, onHover, onOpen }: {
       {(room.closets ?? []).map((c) => <FloorShape key={c.id} outline={closetRecessPolygon(room, c)} color={shadeColor(room.floorColor, 0.92)} lit={lit} />)}
       {roomWalls(room).map((w) => <Wall key={w} room={room} wall={w} height={H} />)}
       {(room.closets ?? []).map((c) => <ClosetShell key={c.id} room={room} closetId={c.id} height={H} />)}
-      {items.filter((i) => i.inRoom).map((it) => <Block key={it.id} item={it} />)}
+      {/* the furniture as it looks in the room (rugs stacked in order so they never flicker) */}
+      {items.filter((i) => i.inRoom).map((it) => <FurnitureModel key={it.id} item={it} stack={isRugKind(it.kind) ? rugs.indexOf(it.id) : 0} />)}
       <Label text={doc.name} lit={lit} position={[middle[0], H + 0.45, middle[1]]} />
     </group>
   )
@@ -243,18 +246,4 @@ function ClosetShell({ room, closetId, height }: { room: Room; closetId: string;
     )
   }
   return <group>{side(b, bb, 's1')}{side(bb, aa, 's2')}{side(aa, a, 's3')}</group>
-}
-
-/** A piece of furniture as a block of its size and colour (a rug as a thin mat). */
-function Block({ item }: { item: Item }) {
-  const rug = isRugKind(item.kind)
-  const h = rug ? 0.012 : Math.max(0.02, cm(item.h))
-  return (
-    <mesh position={[cm(item.x), h / 2 + (rug ? 0.004 : 0), cm(item.y)]} rotation={[0, (-item.rot * Math.PI) / 180, 0]} castShadow={!rug} receiveShadow>
-      {item.kind === 'rug'
-        ? <cylinderGeometry args={[cm(item.w) / 2, cm(item.w) / 2, h, 40]} />
-        : <boxGeometry args={[cm(item.w), h, cm(item.d)]} />}
-      <meshStandardMaterial color={item.color} roughness={0.75} />
-    </mesh>
-  )
 }

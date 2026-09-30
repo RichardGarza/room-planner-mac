@@ -97,3 +97,8 @@ plan) and moved by `(x, y)`. Two rooms that share a wall stand a wall's thicknes
 - [x] Sprint 4: the house in 3D, as a mass model. "3D" on the house map shows every room at its place: floors, walls with door and window gaps (cut away at waist height, or full height), closets, and furniture as blocks of its size and colour. Orbit and zoom; hover lights a room up, a click opens it. (Instead of hiding the walls toward the camera, the walls are cut away; the model is light enough that no quality switching is needed. The detailed 3D of a room is one click away.)
 - [x] Sprint 5: connections. Doors of neighbouring rooms that meet across a shared wall are connected: the map opens the wall between them as a passage and counts them; dragging a room lines its door up with the door it faces. In a room opened from the house, walk mode walks through a connected door into the next room. "+ Add a hallway" (arranging) makes an empty room for a hallway or open area and places it in the house.
 - [x] Sprint 6: polish. Floors: a floor switcher on the map (and "+ New floor above" while arranging), a room can move to another floor, snapping, doors and furniture moves stay on their floor, 3D stacks the floors up to the one selected. "Save as PDF" prints the house, a page per floor. "Export" saves the house with all its rooms as one file; the start screen imports it back without overwriting anything. The "Your house" card shows a small map.
+
+## After the sprints
+
+- Hallways and other plain rooms resize on the map: drag the handle on a wall (it snaps to neighbours; the rest of the room stays put). Rooms can be as narrow as 60 cm.
+- The house in 3D shows each room's furniture fully modelled, as in the room's own 3D view, instead of blocks.
