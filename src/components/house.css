@@ -47,3 +47,6 @@
 /* the house in 3D */
 .house-3d { flex: 1; min-height: 0; position: relative; }
 .house-3d canvas { display: block; }
+
+/* connected doors */
+.house-passage { fill: #fbf7f2; stroke: var(--pink); stroke-width: 2; stroke-dasharray: 5 4; }

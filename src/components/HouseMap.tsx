@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { polygonBounds } from '../geometry'
 import { runChecks } from '../checks'
-import { floorsOverlap, houseBounds, itemAt, itemOnPlan, roomAt, roomOnPlan, snapPlacement, toHouse, type HouseDoc, type HouseRoom } from '../house'
+import { connections, floorsOverlap, houseBounds, itemAt, itemOnPlan, roomAt, roomOnPlan, snapPlacement, toHouse, type HouseDoc, type HouseRoom } from '../house'
 import { useHouses } from '../houses'
 import { useLibrary } from '../library'
 import type { Item, Room } from '../types'
@@ -220,6 +220,8 @@ export function HouseMap() {
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
     if (floorsOverlap(outlines.get(ids[i])!, outlines.get(ids[j])!)) { overlapping.add(ids[i]); overlapping.add(ids[j]) }
   }
+  // doors that meet across a shared wall: drawn as a passage through the wall
+  const links = connections(shown, rooms)
   const addable = library.filter((r) => !house.rooms.some((p) => p.roomId === r.id))
   const selectedName = selected ? rooms[selected]?.name : null
   // what the picked piece gets wrong where it stands now (the planner's own checks)
@@ -238,7 +240,7 @@ export function HouseMap() {
               ? 'Drag to look around, scroll to zoom, click a room to open it.'
               : arranging
               ? 'Drag a room to move it: its walls snap to the rooms around it (hold ⌥ to place it freely). Click a room to select it, R turns it.'
-              : `${house.rooms.length} room${house.rooms.length === 1 ? '' : 's'} · click a room to open it · scroll to zoom, drag to move around`}
+              : `${house.rooms.length} room${house.rooms.length === 1 ? '' : 's'}${links.length ? ` · ${links.length} connected door${links.length === 1 ? '' : 's'}` : ''} · click a room to open it · scroll to zoom, drag to move around`}
           </span>
         </div>
         <div className="seg" role="group" aria-label="Map or 3D">
@@ -339,6 +341,12 @@ export function HouseMap() {
             </g>
           )
         })}
+        {/* connected doors: the wall between them opened up as a passage */}
+        {links.map((c) => (
+          <polygon key={`${c.a.roomId}:${c.a.doorId}|${c.b.roomId}:${c.b.doorId}`} className="house-passage" points={c.passage.map((q) => q.join(',')).join(' ')}>
+            <title>{`${rooms[c.a.roomId]?.name} ↔ ${rooms[c.b.roomId]?.name}`}</title>
+          </polygon>
+        ))}
         {/* the picked piece's outline, and the piece being carried */}
         {pickedItem && !carrying && (() => {
           const place = shown.rooms.find((r) => r.roomId === picked!.roomId)

@@ -1,4 +1,4 @@
-import { floorBounds, polygonBounds, polygonOf, pointInOutline, roomPolygon, segmentsCross, type Polygon } from './geometry'
+import { floorBounds, polygonBounds, polygonOf, pointInOutline, roomPolygon, segmentsCross, wallFrame, wallPoint, type Polygon } from './geometry'
 import type { Item, Rect, Room, Rot } from './types'
 
 /*
@@ -227,4 +227,66 @@ export function itemAt(house: HouseDoc, docs: Record<string, { items: Item[] }>,
     }
   }
   return null
+}
+
+/* ---------- connections: doors that meet across a shared wall ---------- */
+
+/** How far apart (cm) two door openings may be across a wall and still meet: a wall's thickness and a bit. */
+export const DOOR_REACH = WALL_GAP + 15
+
+export interface DoorEnd { roomId: string; doorId: string }
+
+export interface Connection {
+  a: DoorEnd
+  b: DoorEnd
+  /** the passage between the two openings on the house plan: where they overlap, across the wall */
+  passage: Polygon
+}
+
+/** A placed room's doors on the house plan: each door's opening as a segment, and the way into its room. */
+function doorsOnPlan(room: Room, p: HouseRoom) {
+  return room.doors.map((d) => {
+    const a = toHouse(p, wallPoint(room, d.wall, d.offset))
+    const b = toHouse(p, wallPoint(room, d.wall, d.offset + d.width))
+    const f = wallFrame(room, d.wall)
+    // the room's inward normal, turned with the room
+    const n = toHouse({ x: 0, y: 0, rot: p.rot }, f.normal)
+    return { door: d, a, b, inward: n }
+  })
+}
+
+/**
+ * The doors of different rooms that meet: on parallel walls facing each other, no more than
+ * DOOR_REACH apart, their openings overlapping by at least half the narrower one.
+ */
+export function connections(house: HouseDoc, docs: Record<string, { room: Room }>): Connection[] {
+  const placed = house.rooms.filter((p) => docs[p.roomId])
+  const out: Connection[] = []
+  for (let i = 0; i < placed.length; i++) {
+    for (let j = i + 1; j < placed.length; j++) {
+      const A = placed[i], B = placed[j]
+      for (const da of doorsOnPlan(docs[A.roomId].room, A)) {
+        for (const db of doorsOnPlan(docs[B.roomId].room, B)) {
+          // facing each other across the wall
+          if (da.inward[0] * db.inward[0] + da.inward[1] * db.inward[1] > -0.98) continue
+          const len = Math.hypot(da.b[0] - da.a[0], da.b[1] - da.a[1]) || 1
+          const u: [number, number] = [(da.b[0] - da.a[0]) / len, (da.b[1] - da.a[1]) / len]
+          // how far B's opening is behind A's (along A's outward normal) and where it runs along A's
+          const dist = (q: [number, number]) => -((q[0] - da.a[0]) * da.inward[0] + (q[1] - da.a[1]) * da.inward[1])
+          const along = (q: [number, number]) => (q[0] - da.a[0]) * u[0] + (q[1] - da.a[1]) * u[1]
+          const gap = (dist(db.a) + dist(db.b)) / 2
+          if (gap < -1 || gap > DOOR_REACH || Math.abs(dist(db.a) - dist(db.b)) > 2) continue
+          const t0 = Math.max(0, Math.min(along(db.a), along(db.b))), t1 = Math.min(len, Math.max(along(db.a), along(db.b)))
+          if (t1 - t0 < 0.5 * Math.min(len, Math.hypot(db.b[0] - db.a[0], db.b[1] - db.a[1]))) continue
+          const at = (t: number, back: number): [number, number] => [da.a[0] + u[0] * t - da.inward[0] * back, da.a[1] + u[1] * t - da.inward[1] * back]
+          out.push({
+            a: { roomId: A.roomId, doorId: da.door.id },
+            b: { roomId: B.roomId, doorId: db.door.id },
+            passage: [at(t0, 0), at(t1, 0), at(t1, gap), at(t0, gap)],
+          })
+        }
+      }
+    }
+  }
+  return out
 }

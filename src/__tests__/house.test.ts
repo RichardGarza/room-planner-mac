@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultRoom } from '../data'
-import { SNAP, WALL_GAP, floorsOverlap, houseBounds, houseRot, itemOnPlan, migrateHouse, roomAt, roomOnPlan, snapPlacement, toHouse, toRoom, type HouseDoc, type HouseRoom } from '../house'
-import type { Item, Room } from '../types'
+import { SNAP, WALL_GAP, connections, floorsOverlap, houseBounds, houseRot, itemOnPlan, migrateHouse, roomAt, roomOnPlan, snapPlacement, toHouse, toRoom, type HouseDoc, type HouseRoom } from '../house'
+import type { Door, Item, Room } from '../types'
 
 const room = (w: number, d: number): Room => ({ ...defaultRoom, w, d, windows: [], doors: [], radiators: [], closets: [] })
 const house = (rooms: HouseRoom[]): HouseDoc => ({ id: 'house-t', name: 'T', createdAt: '', updatedAt: '', version: 1, rooms })
@@ -94,5 +94,40 @@ describe('arranging: snapping walls together', () => {
     expect(floorsOverlap(A, next)).toBe(false)
     expect(floorsOverlap(A, touching)).toBe(false)
     expect(floorsOverlap(A, over)).toBe(true)
+  })
+})
+
+describe('connected doors', () => {
+  const door = (id: string, wall: Door['wall'], offset: number): Door => ({ id, wall, offset, width: 80, height: 205, sill: 0, hinge: 'left', swing: 'in' })
+  const withDoors = (w: number, d: number, doors: Door[]): Room => ({ ...room(w, d), doors })
+  const docs = (a: Room, b: Room) => ({ a: { room: a }, b: { room: b } })
+
+  it('joins two doors that meet across a shared wall, with the passage between them', () => {
+    const A = withDoors(300, 400, [door('d1', 'right', 50)])
+    const B = withDoors(200, 200, [door('d9', 'left', 50)])
+    const h = house([{ roomId: 'a', x: 0, y: 0, rot: 0 }, { roomId: 'b', x: 300 + WALL_GAP, y: 0, rot: 0 }])
+    const c = connections(h, docs(A, B))
+    expect(c).toHaveLength(1)
+    expect(c[0].a).toEqual({ roomId: 'a', doorId: 'd1' })
+    expect(c[0].b).toEqual({ roomId: 'b', doorId: 'd9' })
+    const xs = c[0].passage.map((p) => p[0]), ys = c[0].passage.map((p) => p[1])
+    expect([Math.min(...xs), Math.max(...xs)]).toEqual([300, 300 + WALL_GAP])
+    expect([Math.min(...ys), Math.max(...ys)]).toEqual([50, 130])
+  })
+
+  it('does not join doors that miss each other, face the same way, or stand too far apart', () => {
+    const A = withDoors(300, 400, [door('d1', 'right', 50)])
+    const place = (x: number) => house([{ roomId: 'a', x: 0, y: 0, rot: 0 }, { roomId: 'b', x, y: 0, rot: 0 }])
+    expect(connections(place(300 + WALL_GAP), docs(A, withDoors(200, 200, [door('d9', 'left', 150)])))).toHaveLength(0)
+    expect(connections(place(300 + WALL_GAP + 60), docs(A, withDoors(200, 200, [door('d9', 'left', 50)])))).toHaveLength(0)
+    expect(connections(place(300 + WALL_GAP), docs(A, withDoors(200, 200, [door('d9', 'right', 50)])))).toHaveLength(0)
+  })
+
+  it('finds doors on turned rooms', () => {
+    const A = withDoors(300, 400, [door('d1', 'right', 50)])
+    // turned half round, room b's right wall faces left: its (0, 0) corner is at its far top-right
+    const B = withDoors(200, 200, [door('d9', 'right', 70)])
+    const h = house([{ roomId: 'a', x: 0, y: 0, rot: 0 }, { roomId: 'b', x: 300 + WALL_GAP + 200, y: 200, rot: 180 }])
+    expect(connections(h, docs(A, B))).toHaveLength(1)
   })
 })
