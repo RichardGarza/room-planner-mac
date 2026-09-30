@@ -83,7 +83,8 @@ describe('suggestLayouts', () => {
     expect(a).toEqual(b)
   })
 
-  it('stays fast with a dozen pieces in a 4 × 5 m room', () => {
+  // a timing test: a busy machine (a build, a browser) can slow one run, so it gets two more tries at the same limit
+  it('stays fast with a dozen pieces in a 4 × 5 m room', { retry: 2 }, () => {
     const room = makeEmptyRoom('big', 400, 500)
     const items = [
       ...bedroom(),
