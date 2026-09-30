@@ -69,4 +69,16 @@ describe('rooms folder', () => {
     expect(await readFile(join(dir, 'seeded-rooms.txt'), 'utf8')).toBe('room-example\nroom-forest\n')
     expect(((await (await fetch(`${base}/_seeded`)).json()) as { ids: string[] }).ids).toEqual(['room-example', 'room-forest'])
   })
+
+  it('backs the rooms up on request and never lists a backup as a room', async () => {
+    await saveDoc(dir, doc('room-b', 'Study'))
+    const first = (await (await fetch(`${base}/_backup`, { method: 'POST' })).json()) as { name: string | null }
+    expect(first.name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2}$/)
+    expect(await readdir(join(dir, 'Backups', first.name!))).toEqual(['study--room-b.json'])
+    // nothing changed: no second copy
+    expect(((await (await fetch(`${base}/_backup`, { method: 'POST' })).json()) as { name: string | null }).name).toBeNull()
+    // the backup folder is not a room
+    const list = (await (await fetch(base)).json()) as { docs: { id: string }[] }
+    expect(list.docs.map((d) => d.id)).toEqual(['room-b'])
+  })
 })

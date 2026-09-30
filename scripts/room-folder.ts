@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Plugin } from 'vite'
+import { backupRooms, type BackupFs } from '../src/storage/backup.ts'
 
 /*
  * The rooms folder for the browser build. `npm run dev` and `npm run preview` serve a tiny
@@ -92,6 +93,22 @@ export async function markSeeded(dir: string, ids: string[]) {
   await writeFile(join(dir, SEEDED_FILE), all.join('\n') + '\n')
 }
 
+/** Node's fs for backupRooms (absolute paths). */
+const nodeBackupFs: BackupFs = {
+  files: async (d) => (await readdir(d, { withFileTypes: true })).filter((e) => e.isFile()).map((e) => e.name),
+  dirs: async (d) => {
+    try {
+      return (await readdir(d, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name)
+    } catch {
+      return []
+    }
+  },
+  read: (p) => readFile(p, 'utf8'),
+  write: (p, text) => writeFile(p, text),
+  mkdir: async (d) => { await mkdir(d, { recursive: true }) },
+  removeDir: (d) => rm(d, { recursive: true, force: true }),
+}
+
 function send(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json')
@@ -105,13 +122,17 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString('utf8')
 }
 
-/** GET /__rooms, GET|PUT|DELETE /__rooms/<id>, GET|POST /__rooms/_seeded. */
+/** GET /__rooms, GET|PUT|DELETE /__rooms/<id>, GET|POST /__rooms/_seeded, POST /__rooms/_backup. */
 export async function handle(dir: string, req: IncomingMessage, res: ServerResponse) {
   const path = (req.url ?? '').split('?')[0].slice(ROUTE.length).replace(/^\/+|\/+$/g, '')
   try {
     if (!path) {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' })
       return send(res, 200, { location: displayDir(dir), docs: await listDocs(dir) })
+    }
+    if (path === '_backup') {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' })
+      return send(res, 200, { name: await backupRooms(nodeBackupFs, dir) })
     }
     if (path === '_seeded') {
       if (req.method === 'GET') return send(res, 200, { ids: await seededIds(dir) })

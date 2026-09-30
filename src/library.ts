@@ -5,7 +5,7 @@ import { doorClearance, doorwayRect, intersects, isRugKind, rectOf } from './geo
 import { migrateDoc } from './migrate'
 import { findFreeSpot, type PlacementOptions, type Spot } from './placement'
 import { bedroomTwo, forestsRoom } from './seeds'
-import { getStorage, summarize, type RoomStorage } from './storage'
+import { getStorage, isTauri, summarize, type RoomStorage } from './storage'
 import { park, useStore } from './store'
 import type { CatalogEntry, Door, Item, Opening, Room, RoomDoc, RoomSummary } from './types'
 import type { Unit } from './units'
@@ -335,6 +335,29 @@ export function timeAgo(iso: string, from = Date.now()): string {
   return `${y} year${y === 1 ? '' : 's'} ago`
 }
 
+/**
+ * Nothing waiting to be saved is lost when the app goes away: the Mac app saves before it quits
+ * (src/storage/quit.ts), the browser sends the last save as the page is left.
+ */
+function guardQuit(save: () => Promise<void>) {
+  if (isTauri()) {
+    import('./storage/quit').then((m) => m.saveBeforeQuit(save)).catch((err) => console.warn('Save-before-quit is not available', err))
+  } else if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => { void save() })
+  }
+}
+
+/** Back the rooms up before the app touches them; a failed backup is reported, never in the way. */
+async function backupFirst() {
+  try {
+    const s = await storage()
+    const name = await s.backup?.()
+    if (name) console.info(`Rooms backed up to ${s.location}/Backups/${name}`)
+  } catch (err) {
+    console.warn('Could not back up the rooms', err)
+  }
+}
+
 /* ---------- autosave plumbing (module-level, one open room at a time) ---------- */
 
 /** Metadata of the open document; the planner store holds room/items/layouts/settings. */
@@ -409,6 +432,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
     set({ status: 'dirty' })
     clearTimer()
     timer = setTimeout(() => { void flush() }, AUTOSAVE_MS)
+  }
+
+  /** Write what is waiting to be saved, if anything (an untouched room is not written, so it stays untouched). */
+  const savePending = async (): Promise<void> => {
+    if (!current) return
+    const st = get().status
+    if (timer || unsaved || st === 'dirty' || st === 'saving') await flush()
+    else if (inFlight) await inFlight
   }
 
   /**
@@ -516,7 +547,11 @@ export const useLibrary = create<LibraryState>((set, get) => {
     },
 
     start: () => {
-      if (!started) started = get().refresh().then(openShared)
+      if (!started) {
+        // a copy of every room first (when they changed since the last one), before anything is written
+        started = backupFirst().then(() => get().refresh()).then(openShared)
+        guardQuit(savePending)
+      }
       return started
     },
 

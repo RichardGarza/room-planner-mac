@@ -2,6 +2,7 @@ import { open, save } from '@tauri-apps/plugin-dialog'
 import { BaseDirectory, exists, mkdir, readDir, readTextFile, remove, writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { migrateDoc } from '../migrate'
 import type { RoomDoc, RoomSummary } from '../types'
+import { backupRooms, type BackupFs } from './backup'
 import { summarize, type RoomStorage } from './types'
 
 /**
@@ -108,6 +109,16 @@ async function removeRoomFile(name: string) {
   }
 }
 
+/** The Documents folder through the fs plugin, for backupRooms (paths are relative to Documents). */
+const tauriBackupFs: BackupFs = {
+  files: async (dir) => (await readDir(dir, IN_DOCS)).filter((e) => e.isFile).map((e) => e.name),
+  dirs: async (dir) => ((await exists(dir, IN_DOCS)) ? (await readDir(dir, IN_DOCS)).filter((e) => e.isDirectory).map((e) => e.name) : []),
+  read: (path) => readTextFile(path, IN_DOCS),
+  write: (path, text) => writeTextFile(path, text, IN_DOCS),
+  mkdir: (dir) => mkdir(dir, { ...IN_DOCS, recursive: true }),
+  removeDir: (dir) => remove(dir, { ...IN_DOCS, recursive: true }),
+}
+
 export class TauriFsBackend implements RoomStorage {
   readonly location = LOCATION
 
@@ -206,6 +217,11 @@ export class TauriFsBackend implements RoomStorage {
   async markSeeded(ids: string[]): Promise<void> {
     const all = [...new Set([...(await this.seededIds()), ...ids])].sort()
     await writeTextFile(inFolder(SEEDED_FILE), all.join('\n') + '\n', IN_DOCS)
+  }
+
+  async backup(): Promise<string | null> {
+    await ensureFolder()
+    return backupRooms(tauriBackupFs, FOLDER)
   }
 
   async exportDoc(doc: RoomDoc): Promise<void> {

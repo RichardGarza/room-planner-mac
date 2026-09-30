@@ -60,15 +60,23 @@ export class FolderApiBackend extends LocalStorageBackend {
   }
 
   async save(doc: RoomDoc): Promise<void> {
+    const body = JSON.stringify(doc)
     await call(`/${encodeURIComponent(doc.id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(doc),
+      body,
+      // a save sent as the page closes still arrives (browsers allow this up to 64 KB)
+      keepalive: body.length < 60000,
     })
   }
 
   async remove(id: string): Promise<void> {
     await call(`/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  }
+
+  async backup(): Promise<string | null> {
+    const body = (await (await call('/_backup', { method: 'POST' })).json()) as { name?: unknown }
+    return typeof body.name === 'string' ? body.name : null
   }
 
   async seededIds(): Promise<string[]> {

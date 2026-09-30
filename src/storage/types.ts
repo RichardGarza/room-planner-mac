@@ -23,6 +23,8 @@ export interface RoomStorage {
    */
   seededIds?(): Promise<string[]>
   markSeeded?(ids: string[]): Promise<void>
+  /** Optional: copy every room file into Backups/<date time>/ when they changed since the last copy (src/storage/backup.ts). Resolves the new folder's name, or null. */
+  backup?(): Promise<string | null>
 }
 
 export function summarize(doc: RoomDoc): RoomSummary {

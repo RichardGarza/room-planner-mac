@@ -47,6 +47,8 @@ The build produces `src-tauri/target/release/bundle/macos/Room Planner.app` and 
 
 In the Mac app every room is a JSON file in `~/Documents/Room Planner/`, named `<room-name>--<id>.json`, with its saved layouts inside. The folder lives outside the app, so rebuilding, reinstalling, or deleting the app never touches your rooms. You can back up, sync, or share that folder. `seeded-rooms.txt` in the same folder records which built-in rooms have been added, so one you delete stays deleted. Export and Import use the normal macOS save and open dialogs. macOS asks once for permission to use your Documents folder.
 
+**Your rooms are safe across updates.** Rooms and their saved layouts live only in that folder, never inside the app. Each time the app starts, if any room changed since the last backup, every room file is copied into `~/Documents/Room Planner/Backups/<date time>/` (the newest 30 are kept); to restore one, copy its file back into the folder. Closing the window or quitting the app (⌘Q, or a rebuild) first saves whatever edit was still waiting to be written; the browser version sends its last save as the page closes.
+
 The app is not code-signed or notarized. The first time you open it, right-click (or Control-click) `Room Planner.app` and choose Open, then confirm. After that it opens normally.
 
 To regenerate the app icon from a 1024×1024 PNG: `npx tauri icon src-tauri/app-icon.png`.
@@ -102,7 +104,7 @@ Vite, React 19, TypeScript, Three.js via react-three-fiber and drei, zustand for
 | `src/library.ts` | Rooms library: documents, groups, autosave, import/export |
 | `src/outline.ts` | Drawn room shapes: walls from lengths and angles and back, tidying, moving openings onto new walls |
 | `src/components/WallEditor.tsx` | The Edit walls dialog: draw on a grid, then lengths and angles |
-| `src/storage/` | Storage backends: Tauri files, the dev server's rooms folder, browser local storage |
+| `src/storage/` | Storage backends: Tauri files, the dev server's rooms folder, browser local storage; backups (`backup.ts`) and save-before-quit (`quit.ts`) |
 | `scripts/room-folder.ts` | Vite plugin: the `/__rooms` API that reads and writes the rooms folder for the browser build |
 | `src/components/Library.tsx` | The home screen |
 | `src/components/FloorPlan.tsx` | SVG floor plan with drag and dimension lines |
