@@ -4,7 +4,7 @@ Will the new bed fit? Room Planner is a small app for trying furniture layouts i
 
 It runs in the browser and as a native Mac app. This repository is the Mac and web edition; the Windows version lives in its own repository.
 
-**The house view (in progress).** Your rooms fit together into one house. "Your house" on the start screen opens a map of the whole home, every room at its place with its furniture: scroll to zoom, drag to move around, click a room to open it, and the back button returns to the map. Houses are saved in `~/Documents/Room Planner/Houses/` next to the rooms and backed up with them; a house only places rooms, so your rooms and layouts stay exactly as they are. Arranging rooms, moving furniture between rooms and a 3D house are next: see [docs/HOUSE_ROADMAP.md](docs/HOUSE_ROADMAP.md).
+**The house view (in progress).** Your rooms fit together into one house. "Your house" on the start screen opens a map of the whole home, every room at its place with its furniture: scroll to zoom, drag to move around, click a room to open it, and the back button returns to the map. "Arrange rooms" lets you drag rooms into place (their walls snap together a wall's thickness apart), turn them, and add or take out rooms. Houses are saved in `~/Documents/Room Planner/Houses/` next to the rooms and backed up with them; a house only places rooms, so your rooms and layouts stay exactly as they are. Moving furniture between rooms and a 3D house are next: see [docs/HOUSE_ROADMAP.md](docs/HOUSE_ROADMAP.md).
 
 ## What it does
 

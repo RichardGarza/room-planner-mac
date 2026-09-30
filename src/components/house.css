@@ -23,3 +23,15 @@
 .lib-house span { font-size: 12px; color: var(--muted); font-weight: 600; }
 .lib-house .lib-action-icon { width: 42px; height: 42px; }
 .lib-house .lib-action-icon svg { width: 22px; height: 22px; }
+
+/* arranging */
+.house-tools { display: flex; align-items: center; gap: 10px; padding: 8px 18px; background: #fff8fa; border-bottom: 1px solid var(--line); min-height: 44px; }
+.house-tools strong { font-weight: 900; }
+.house-tools-gap { flex: 1; }
+.house-add { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; color: var(--muted); }
+.house.arranging .house-map { cursor: default; }
+.house.arranging .house-room { cursor: move; }
+.house-room.selected .house-hit { fill: rgba(229, 64, 122, 0.1); stroke: var(--pink); stroke-width: 8; }
+.house-room.dragging { opacity: 0.85; }
+.house-room.overlap .house-hit { fill: rgba(217, 83, 79, 0.12); stroke: var(--bad); stroke-width: 8; }
+.house-note.warn { color: var(--bad); font-weight: 700; }

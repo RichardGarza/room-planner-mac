@@ -62,7 +62,7 @@ plan) and moved by `(x, y)`. Two rooms that share a wall stand a wall's thicknes
 ### Sprint 2: arrange the house
 - Drag a room on the map; turn it 90° with a button or the R key.
 - Snapping: a wall dropped near another room's wall snaps a wall's thickness away, parallel;
-  ends and doors line up when close.
+  outside walls line up when close. (Lining doors up moved to sprint 5, with connected doors.)
 - Add a room to the house from the library; take one out (the room itself stays).
 - Saved on every change, like rooms.
 
@@ -79,7 +79,8 @@ plan) and moved by `(x, y)`. Two rooms that share a wall stand a wall's thicknes
 - Rooms not in view drop to the fast quality level so the whole house stays smooth.
 
 ### Sprint 5: connections and walking through
-- Doors that meet across a shared wall join the two rooms (shown on the map).
+- Doors that meet across a shared wall join the two rooms (shown on the map); a door dragged
+  near another room's door lines up with it.
 - Walk mode walks through a joined door into the next room.
 - Hallways and open areas as rooms with no furniture.
 
@@ -91,7 +92,7 @@ plan) and moved by `(x, y)`. Two rooms that share a wall stand a wall's thicknes
 ## Status
 
 - [x] Sprint 1: the house on a map. "Your house" on the start screen opens the map of "Home" (Forest's Room and Bedroom 2 side by side); scroll to zoom, drag to move, click a room to open it, "‹ Home" goes back. Houses are saved in `Houses/` and backed up.
-- [ ] Sprint 2
+- [x] Sprint 2: arranging. "Arrange rooms" on the map: drag rooms (walls snap a wall's thickness apart, outside walls line up; ⌥ places freely), select one to turn it (R) or take it out, add rooms from the library; overlapping rooms show in red. Saved on every change.
 - [ ] Sprint 3
 - [ ] Sprint 4
 - [ ] Sprint 5
