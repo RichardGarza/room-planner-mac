@@ -180,9 +180,36 @@ export function snapPlacement(house: HouseDoc, rooms: Map<string, Room>, moving:
       }
     }
   }
+  // Doors: a door facing another room's door across the walls lines up with it along the wall; that
+  // wins over lining up the walls' ends on the same axis (it is what you are after).
+  let doorX: number | null = null, doorY: number | null = null
+  const others2 = house.rooms.filter((r) => r.roomId !== moving.roomId && rooms.has(r.roomId))
+  for (const dm of doorsOnPlan(room, moving)) {
+    for (const r of others2) {
+      for (const dn of doorsOnPlan(rooms.get(r.roomId)!, r)) {
+        if (dm.inward[0] * dn.inward[0] + dm.inward[1] * dn.inward[1] > -0.98) continue
+        const mid = (d: { a: [number, number]; b: [number, number] }): [number, number] => [(d.a[0] + d.b[0]) / 2, (d.a[1] + d.b[1]) / 2]
+        const [mx, my] = mid(dm), [nx, ny] = mid(dn)
+        if (Math.abs(dm.inward[0]) > 0.99) {
+          // doors in walls running down the plan: close across (x), lined up along (y)
+          const across = Math.abs(nx - mx)
+          if (across > DOOR_REACH + snap) continue
+          const shift = ny - my
+          if (Math.abs(shift) <= snap && (doorY === null || Math.abs(shift) < Math.abs(doorY))) doorY = shift
+        } else if (Math.abs(dm.inward[1]) > 0.99) {
+          const across = Math.abs(ny - my)
+          if (across > DOOR_REACH + snap) continue
+          const shift = nx - mx
+          if (Math.abs(shift) <= snap && (doorX === null || Math.abs(shift) < Math.abs(doorX))) doorX = shift
+        }
+      }
+    }
+  }
+  // a door lined up along a wall running down the plan moves the room along y; one across, along x
+  const fx = doorX ?? dx, fy = doorY ?? dy
   return {
-    place: { ...moving, x: moving.x + (dx ?? 0), y: moving.y + (dy ?? 0) },
-    snapped: { x: dx !== null, y: dy !== null },
+    place: { ...moving, x: moving.x + (fx ?? 0), y: moving.y + (fy ?? 0) },
+    snapped: { x: fx !== null, y: fy !== null },
   }
 }
 

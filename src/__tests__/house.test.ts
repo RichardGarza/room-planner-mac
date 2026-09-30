@@ -130,4 +130,16 @@ describe('connected doors', () => {
     const h = house([{ roomId: 'a', x: 0, y: 0, rot: 0 }, { roomId: 'b', x: 300 + WALL_GAP + 200, y: 200, rot: 180 }])
     expect(connections(h, docs(A, B))).toHaveLength(1)
   })
+
+  it('lines a door up with the door it faces when it comes close, over lining up the walls', () => {
+    const A = withDoors(300, 400, [door('d1', 'right', 50)]) // door centre at y 90
+    const B = withDoors(200, 200, [door('d9', 'left', 60)]) // door centre 100 down room b
+    const rooms = new Map([['a', A], ['b', B]])
+    // dropped a little off: the walls would line up at y 0 (5 away), the doors at y -10 (15 away)
+    const h = house([{ roomId: 'a', x: 0, y: 0, rot: 0 }, { roomId: 'b', x: 300 + WALL_GAP + 8, y: 5, rot: 0 }])
+    const r = snapPlacement(h, rooms, h.rooms[1])
+    expect(r.place.y).toBe(-10)
+    expect(r.place.x).toBe(300 + WALL_GAP)
+    expect(connections(house([h.rooms[0], r.place]), docs(A, B))).toHaveLength(1)
+  })
 })
